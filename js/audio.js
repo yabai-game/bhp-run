@@ -707,6 +707,69 @@ export function playEvent(ev) {
 
     src.start(now);
     src.stop(now + 0.06);
+  } else if (ev.type === 'flap') {
+    // 3 cụm nhiễu bandpass 1200 Hz Q 2, mỗi cụm 0,04 s cách 0,07 s (tiếng vỗ cánh)
+    const nBuf = getNoiseBuffer(ctx);
+    for (let i = 0; i < 3; i++) {
+      const t = now + i * 0.07;
+      const nSrc = ctx.createBufferSource();
+      nSrc.buffer = nBuf;
+
+      const nFilter = ctx.createBiquadFilter();
+      nFilter.type = 'bandpass';
+      nFilter.frequency.setValueAtTime(1200, t);
+      nFilter.Q.setValueAtTime(2, t);
+
+      const nGain = ctx.createGain();
+      nGain.gain.setValueAtTime(SFX_PEAK.flap, t);
+      nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+
+      nSrc.connect(nFilter);
+      nFilter.connect(nGain);
+      nGain.connect(sfxGain);
+
+      nSrc.start(t);
+      nSrc.stop(t + 0.04);
+    }
+
+    // 2 tiếng "cục" triangle B4 rồi Gs4 0,06 s mỗi tiếng
+    const notes = [
+      { note: SFX_NOTES.B4, time: now + 0.02 },
+      { note: SFX_NOTES.Gs4, time: now + 0.09 }
+    ];
+    for (let i = 0; i < notes.length; i++) {
+      const { note, time } = notes[i];
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(note, time);
+
+      g.gain.setValueAtTime(SFX_PEAK.flap, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
+
+      osc.connect(g);
+      g.connect(sfxGain);
+
+      osc.start(time);
+      osc.stop(time + 0.06);
+    }
+  } else if (ev.type === 'drop') {
+    // 1 tiếng "cục" triangle Ds5 0,07 s
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(SFX_NOTES.Ds5, now);
+
+    g.gain.setValueAtTime(SFX_PEAK.drop, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+
+    osc.connect(g);
+    g.connect(sfxGain);
+
+    osc.start(now);
+    osc.stop(now + 0.07);
   } else if (ev.type === 'jump') {
     // Triangle trượt Gs4 → Ds5 trong 0,10 s (exponential), qua lowpass 3000 Hz, đỉnh jump, tắt lúc 0,14 s
     const osc = ctx.createOscillator();

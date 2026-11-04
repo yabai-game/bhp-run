@@ -9,8 +9,8 @@ export function loadSprites() {
 
   if (noSprites) {
     return {
-      ready: Promise.resolve({ teo: null, police: null, props: null }),
-      late: Promise.resolve({ teo: null, police: null, props: null })
+      ready: Promise.resolve({ teo: null, police: null, props: null, gathief: null }),
+      late: Promise.resolve({ teo: null, police: null, props: null, gathief: null })
     };
   }
 
@@ -27,7 +27,7 @@ export function loadSprites() {
     img.src = src;
   });
 
-  const loadSingle = async (baseName) => {
+  const loadSingle = async (baseName, silent = false) => {
     try {
       const res = await fetch(`assets/sprites/${baseName}.json`);
       if (!res.ok) {
@@ -37,23 +37,26 @@ export function loadSprites() {
       const img = await loadImg(`assets/sprites/${data.image || `${baseName}.webp`}`);
       return { img, data };
     } catch (err) {
-      console.warn(`Không thể nạp atlas ${baseName}:`, err);
+      if (!silent) {
+        console.warn(`Không thể nạp atlas ${baseName}:`, err);
+      }
       return null;
     }
   };
 
-  // Nạp 3 atlas độc lập: teo, police, props
+  // Nạp các atlas độc lập: teo, police, props, gathief (thử nạp lặng lẽ)
   const pTeo = loadSingle('teo');
   const pPolice = loadSingle('police');
   const pProps = noProps ? Promise.resolve(null) : loadSingle('props');
+  const pGathief = loadSingle('gathief', true);
 
-  const loadAll = Promise.all([pTeo, pPolice, pProps])
-    .then(([teo, police, props]) => ({ teo, police, props }));
+  const loadAll = Promise.all([pTeo, pPolice, pProps, pGathief])
+    .then(([teo, police, props, gathief]) => ({ teo, police, props, gathief }));
 
   // Promise late: nạp xong thật (kể cả sau timeout ready)
   const late = loadAll.catch(err => {
     console.warn('Lỗi nạp sprite (late):', err);
-    return { teo: null, police: null, props: null };
+    return { teo: null, police: null, props: null, gathief: null };
   });
 
   // Đồng hồ timeout 8 s chỉ đếm khi trang đang hiển thị (document.visibilityState === 'visible')
@@ -123,12 +126,12 @@ export function loadSprites() {
     }),
     timerPromise.then(() => {
       console.warn('Quá thời gian nạp sprite (8s trang hiển thị), chuyển sang chế độ dự phòng.');
-      return { teo: null, police: null, props: null };
+      return { teo: null, police: null, props: null, gathief: null };
     })
   ]).catch(err => {
     cleanupTimer();
     console.warn('Lỗi khi nạp sprite kịp thời:', err);
-    return { teo: null, police: null, props: null };
+    return { teo: null, police: null, props: null, gathief: null };
   });
 
   return { ready, late };

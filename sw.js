@@ -1,4 +1,4 @@
-const APP_VERSION = 'g07';
+const APP_VERSION = 'g08';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
@@ -12,6 +12,7 @@ const ASSETS = [
   './js/background.js',
   './js/brand.js',
   './js/brandart.js',
+  './js/characters.js',
   './js/collide.js',
   './js/config.js',
   './js/game.js',
@@ -33,6 +34,8 @@ const ASSETS = [
   './assets/fonts/baloo2-vietnamese.woff2',
   './assets/sprites/teo.webp',
   './assets/sprites/teo.json',
+  './assets/sprites/gathief.webp',
+  './assets/sprites/gathief.json',
   './assets/sprites/police.webp',
   './assets/sprites/police.json',
   './assets/sprites/props.webp',

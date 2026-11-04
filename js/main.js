@@ -6,6 +6,14 @@ import { createAccState, advance } from './loop.js';
 import { loadSprites } from './assets.js';
 import { initAudio, playEvent, startBgm, stopBgm, suspendAudio, resumeAudio } from './audio.js';
 import { HUD } from './hudlayout.js';
+import {
+  CHARACTERS,
+  CHARACTER_ORDER,
+  isUnlocked,
+  nextCharacter,
+  sanitizeCharacter,
+  justUnlocked
+} from './characters.js';
 
 // Đăng ký Service Worker chỉ khi trong Secure Context (HTTPS hoặc localhost)
 if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -16,6 +24,7 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 }
 
 const STORAGE_KEY = 'boyphorun.best';
+const CHAR_STORAGE_KEY = 'boyphorun.char';
 
 function loadBestScore() {
   try {
@@ -35,6 +44,25 @@ function saveBestScore(score) {
   }
 }
 
+function loadSelectedChar(best, unlockAll) {
+  try {
+    const raw = localStorage.getItem(CHAR_STORAGE_KEY);
+    return sanitizeCharacter(raw, best, unlockAll);
+  } catch {
+    return 'TEO';
+  }
+}
+
+function saveSelectedChar(charId) {
+  try {
+    localStorage.setItem(CHAR_STORAGE_KEY, charId);
+  } catch {}
+}
+
+function insideRect(x, y, rect) {
+  return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+}
+
 function init() {
   const canvas = document.getElementById('game');
   const rotateOverlay = document.getElementById('rotate');
@@ -44,6 +72,8 @@ function init() {
   let bestScore = savedBestScore;
   let bestScoreBeforeRun = bestScore;
   let isNewBest = false;
+  let justUnlockedGa = false;
+  let flashCharSelectT = 0;
   let seed = Date.now() >>> 0;
 
   // Tải phông chữ Baloo 2 không chặn game
@@ -57,12 +87,19 @@ function init() {
     }).catch(() => {});
   }
 
-  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand, __bprDisclaimer, __bprUi vào globalThis nếu có ?debug=1 để kiểm thử
+  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand, __bprDisclaimer, __bprUi, __bprChar vào globalThis nếu có ?debug=1 để kiểm thử
   const urlParams = new URLSearchParams(window.location.search);
   const isDebug = urlParams.get('debug') === '1';
+  const isUnlockAll = isDebug && urlParams.get('unlockall') === '1';
   const isNoDisclaimer = urlParams.get('nodisclaimer') === '1';
   const isYabaiDebug = isDebug && urlParams.get('yabai') === '1';
-  const gameOpts = isYabaiDebug ? { forceItem: 'YABAI' } : {};
+
+  let selectedCharId = loadSelectedChar(bestScore, isUnlockAll);
+
+  const gameOpts = {
+    characterId: selectedCharId,
+    ...(isYabaiDebug ? { forceItem: 'YABAI' } : {})
+  };
 
   let game = createGame(seed, 'ready', gameOpts);
 
@@ -108,6 +145,12 @@ function init() {
   if (isDebug) {
     globalThis.__bpr = game;
     globalThis.__bprProps = 'fallback';
+    globalThis.__bprChar = {
+      id: game.characterId,
+      held: Boolean(game.chicken?.held),
+      flapReady: Boolean(game.chicken?.flapReady),
+      sprite: 'fallback'
+    };
     globalThis.__bprSfx = [];
     globalThis.__bprMusic = {
       source: 'none',
@@ -156,6 +199,7 @@ function init() {
       updateMutePos();
       justDismissedDisclaimer = true;
       input.pollActions();
+      input.pollTaps();
       resumeAudio();
     });
   }
@@ -262,6 +306,8 @@ function init() {
 
   const pollFn = () => {
     let actions = input.pollActions();
+    const taps = input.pollTaps();
+
     if (disclaimerOpen) {
       return [];
     }
@@ -272,6 +318,47 @@ function init() {
     if (loading) {
       actions = actions.filter(a => a !== 'start');
     }
+
+    // Phím KeyC (char_next) chuyển nhân vật khi ở màn ready
+    if (game.phase === 'ready' && actions.includes('char_next')) {
+      selectedCharId = nextCharacter(selectedCharId, 1);
+      saveSelectedChar(selectedCharId);
+      game.characterId = selectedCharId;
+      const carries = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
+      game.chicken = { held: carries, flapReady: carries };
+      actions = actions.filter(a => a !== 'char_next');
+    }
+
+    // Xử lý chạm trên màn hình chờ
+    if (game.phase === 'ready' && taps.length > 0) {
+      for (let i = 0; i < taps.length; i++) {
+        const tap = taps[i];
+        if (insideRect(tap.x, tap.y, HUD.charPrev)) {
+          selectedCharId = nextCharacter(selectedCharId, -1);
+          saveSelectedChar(selectedCharId);
+          game.characterId = selectedCharId;
+          const carries = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
+          game.chicken = { held: carries, flapReady: carries };
+          actions = actions.filter(a => a !== 'start');
+        } else if (insideRect(tap.x, tap.y, HUD.charNext) || insideRect(tap.x, tap.y, HUD.charCard)) {
+          selectedCharId = nextCharacter(selectedCharId, 1);
+          saveSelectedChar(selectedCharId);
+          game.characterId = selectedCharId;
+          const carries = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
+          game.chicken = { held: carries, flapReady: carries };
+          actions = actions.filter(a => a !== 'start');
+        }
+      }
+    }
+
+    // Nếu nhân vật đang chọn chưa mở -> không thể bắt đầu chạy
+    if (game.phase === 'ready') {
+      const charUnlocked = isUnlocked(selectedCharId, bestScore, isUnlockAll);
+      if (!charUnlocked) {
+        actions = actions.filter(a => a !== 'start');
+      }
+    }
+
     return actions;
   };
 
@@ -279,13 +366,15 @@ function init() {
     if (game.phase === 'ready' && currentActions.includes('start')) {
       bestScoreBeforeRun = bestScore;
       isNewBest = false;
+      justUnlockedGa = false;
     } else if (game.phase === 'caught' && game.restartLockT <= 0 && currentActions.includes('start')) {
       bestScoreBeforeRun = bestScore;
       isNewBest = false;
+      justUnlockedGa = false;
     }
 
     const nextSeed = Date.now() >>> 0;
-    step(game, dt, currentActions, { seed: nextSeed, ...gameOpts });
+    step(game, dt, currentActions, { seed: nextSeed, ...gameOpts, characterId: selectedCharId });
 
     // Phát âm thanh và thông báo hiệu ứng hình ảnh cho từng sự kiện
     for (let i = 0; i < game.events.length; i++) {
@@ -296,6 +385,11 @@ function init() {
 
     if (game.events.some(e => e.type === 'caught')) {
       isNewBest = game.score > bestScoreBeforeRun;
+      const newlyUnlocked = justUnlocked(bestScoreBeforeRun, game.score);
+      justUnlockedGa = newlyUnlocked.includes('GA');
+      if (justUnlockedGa) {
+        flashCharSelectT = 0.9;
+      }
       if (game.score > savedBestScore) {
         savedBestScore = game.score;
         saveBestScore(savedBestScore);
@@ -328,7 +422,8 @@ function init() {
 
     // Nếu tab ẩn hoặc đang phủ xoay ngang → bỏ action dồn lại và không tích lũy thời gian
     if (document.hidden || isPausedByRotate) {
-      input.pollActions(); // Xả và bỏ thao tác cũ
+      input.pollActions();
+      input.pollTaps();
       accState.accumulator = 0;
       requestAnimationFrame(loop);
       return;
@@ -336,14 +431,36 @@ function init() {
 
     advance(accState, frameTime, pollFn, stepFn, DT);
 
+    if (flashCharSelectT > 0) {
+      flashCharSelectT = Math.max(0, flashCharSelectT - frameTime);
+    }
+
     // Render với biến đổi scale phù hợp với canvas backing store
     const k = canvas.width / VIEW_W;
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    renderer.render(game, bestScore, sprites, isDebug ? displayFps : null, loading, frameTime, brandLogo, isNewBest);
+    renderer.render(
+      game,
+      bestScore,
+      sprites,
+      isDebug ? displayFps : null,
+      loading,
+      frameTime,
+      brandLogo,
+      isNewBest,
+      justUnlockedGa,
+      isUnlockAll,
+      flashCharSelectT
+    );
 
     if (isDebug) {
       globalThis.__bprFps = displayFps;
       globalThis.__bprProps = (sprites && sprites.props) ? 'sprite' : 'fallback';
+      globalThis.__bprChar = {
+        id: game.characterId,
+        held: Boolean(game.chicken?.held),
+        flapReady: Boolean(game.chicken?.flapReady),
+        sprite: (sprites && sprites.gathief) ? 'gathief' : 'fallback'
+      };
       if (renderer.lastAnim) {
         globalThis.__bprAnim = {
           teo: { name: renderer.lastAnim.teo.name, frame: renderer.lastAnim.teo.frame },

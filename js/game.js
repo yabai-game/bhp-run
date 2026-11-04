@@ -9,8 +9,11 @@ import {
   METER_MAX,
   RESTART_LOCK,
   DESPAWN_Z,
-  ITEM_TYPES
+  ITEM_TYPES,
+  CHICKEN_SPEED_MUL,
+  FLAP_V
 } from './config.js';
+import { CHARACTERS } from './characters.js';
 import { createRng } from './rng.js';
 import { createPlayer, applyAction, updatePlayer } from './player.js';
 import { createSpawner } from './spawner.js';
@@ -18,12 +21,16 @@ import { checkCollisions } from './collide.js';
 
 export function createGame(seed = 123456789, initialPhase = 'ready', opts = {}) {
   const rng = createRng(seed);
+  const characterId = opts?.characterId || 'TEO';
+  const carriesChicken = Boolean(CHARACTERS[characterId]?.carriesChicken);
   return {
     phase: initialPhase,
     seed,
+    characterId,
+    chicken: { held: carriesChicken, flapReady: carriesChicken },
     time: 0,
     distance: 0,
-    speed: SPEED_START,
+    speed: carriesChicken ? SPEED_START * CHICKEN_SPEED_MUL : SPEED_START,
     meter: 0,
     stumbleT: 0,
     items: 0,
@@ -53,7 +60,7 @@ export function step(state, dt, actions = [], opts = {}) {
     }
     if (state.restartLockT <= 0 && actions.includes('start')) {
       const newSeed = opts?.seed !== undefined ? opts.seed : ((state.seed + 1) >>> 0);
-      const nextGame = createGame(newSeed, 'running', opts);
+      const nextGame = createGame(newSeed, 'running', { characterId: state.characterId, ...opts });
       Object.assign(state, nextGame);
     }
     return state;
@@ -70,6 +77,12 @@ export function step(state, dt, actions = [], opts = {}) {
         else if (act === 'jump') state.events.push({ type: 'jump' });
         else if (act === 'slide') state.events.push({ type: 'slide' });
       }
+    } else if (act === 'drop') {
+      if (state.phase === 'running' && state.chicken && state.chicken.held) {
+        state.chicken.held = false;
+        state.chicken.flapReady = false;
+        state.events.push({ type: 'drop', lane: state.player.lane });
+      }
     }
   }
 
@@ -79,14 +92,15 @@ export function step(state, dt, actions = [], opts = {}) {
   // 3. Cập nhật tốc độ / quãng đường, trôi vật thể
   state.time += dt;
   const baseSpeed = Math.min(SPEED_START + SPEED_GAIN * state.time, SPEED_MAX);
+  const chickenMul = (state.chicken && state.chicken.held) ? CHICKEN_SPEED_MUL : 1.0;
   if (state.stumbleT > 0) {
     state.stumbleT = Math.max(0, state.stumbleT - dt);
     if (state.stumbleT <= 1e-9) {
       state.stumbleT = 0;
     }
-    state.speed = baseSpeed * STUMBLE_SPEED_MUL;
+    state.speed = baseSpeed * STUMBLE_SPEED_MUL * chickenMul;
   } else {
-    state.speed = baseSpeed;
+    state.speed = baseSpeed * chickenMul;
   }
 
   state.distance += state.speed * dt;
@@ -109,6 +123,16 @@ export function step(state, dt, actions = [], opts = {}) {
   let hitOccurred = false;
   for (let i = 0; i < hits.length; i++) {
     const h = hits[i];
+    if (state.chicken && state.chicken.held && state.chicken.flapReady) {
+      state.chicken.flapReady = false;
+      state.events.push({ type: 'flap' });
+      state.player.airborne = true;
+      state.player.vy = FLAP_V;
+      state.player.sliding = false;
+      state.player.slideT = 0;
+      continue;
+    }
+
     state.events.push({ type: 'hit', obstacle: h.type });
     hitOccurred = true;
 
@@ -120,7 +144,7 @@ export function step(state, dt, actions = [], opts = {}) {
       break;
     } else {
       state.stumbleT = STUMBLE_TIME;
-      state.speed = baseSpeed * STUMBLE_SPEED_MUL;
+      state.speed = baseSpeed * STUMBLE_SPEED_MUL * chickenMul;
       state.meter = Math.min(METER_MAX, state.meter + METER_HIT);
       if (state.meter >= 100) {
         state.phase = 'caught';

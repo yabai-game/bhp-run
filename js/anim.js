@@ -30,6 +30,10 @@ export function frameIndex(n, u, loop) {
   return Math.min(n - 1, Math.floor(clamped * n));
 }
 
+export function animNameFor(baseName, chickenHeld) {
+  return chickenHeld ? baseName : (baseName + '_free');
+}
+
 export function teoAnim(state) {
   // 1. phase === 'caught' → stumble, u = 1 (giữ khung cuối)
   if (state.phase === 'caught') {

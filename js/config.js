@@ -76,10 +76,16 @@ export const MUSIC_STUMBLE_RECOVER_TIME = 0.35;
 export const MUSIC_CAUGHT_FADE_TIME = 0.3;
 export const MUSIC_CROSSFADE_TIME = 1.0;
 
+export const CHICKEN_SPEED_MUL = 0.85;
+export const FLAP_V = 8.5;
+export const DOUBLE_TAP_MS = 350;
+
 export const SFX_PEAK = {
   lane: 0.025,
+  drop: 0.04,
   slide: 0.045,
   jump: 0.05,
+  flap: 0.06,
   pickup: 0.09,
   pickupYabai: 0.11,
   hit: 0.14,

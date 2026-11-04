@@ -16,7 +16,8 @@ import {
   frameIndex,
   propFrameKey,
   sidePropFrameKey,
-  itemBottomY
+  itemBottomY,
+  animNameFor
 } from './anim.js';
 import { createProps } from './props.js';
 import { createBackground } from './background.js';
@@ -38,8 +39,11 @@ import {
   card,
   ribbon,
   crown,
-  arrowIcon
+  arrowIcon,
+  lockIcon,
+  chickenIcon
 } from './ui.js';
+import { CHARACTERS, isUnlocked } from './characters.js';
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -75,7 +79,7 @@ export function createRenderer(canvas) {
   let shakeT = 0;
   let hitFlashT = 0;
 
-  // Pool 12 phần tử tĩnh cho điểm bay (+N)
+  // Pool 12 phần tử tĩnh cho điểm bay (+N) và thông báo hiệu ứng
   const floatScoresPool = [];
   for (let i = 0; i < 12; i++) {
     floatScoresPool.push({ active: false, text: '', x: 0, y: 0, t: 0, colorPrefix: 'rgba(253, 224, 71,' });
@@ -94,13 +98,58 @@ export function createRenderer(canvas) {
     slot.colorPrefix = isYabai ? 'rgba(251, 191, 36,' : 'rgba(253, 224, 71,';
   }
 
+  // Pool tĩnh 6 hạt lông gà bay ra khi vỗ cánh
+  const feathersPool = [];
+  for (let i = 0; i < 6; i++) {
+    feathersPool.push({ active: false, x: 0, y: 0, vx: 0, vy: 0, r: 3, life: 0 });
+  }
+
+  function spawnFeathers(cx, cy) {
+    for (let i = 0; i < 6; i++) {
+      const f = feathersPool[i];
+      const angle = (i * Math.PI) / 3 + 0.2;
+      const speed = 75 + (i % 3) * 20;
+      f.active = true;
+      f.x = cx;
+      f.y = cy;
+      f.vx = Math.cos(angle) * speed;
+      f.vy = Math.sin(angle) * speed - 25;
+      f.r = 3 + (i % 3);
+      f.life = 0.6;
+    }
+  }
+
+  // Trạng thái hiệu ứng thả gà chạy ra mép đường
+  const dropAnim = {
+    active: false,
+    t: 0,
+    startX: 0,
+    targetX: 0
+  };
+
+  let flapTimer = 0;
+  let flapPhase = 0;
   let lastCamX = 0;
+  let lastPlayerX = 0;
+  let lastPlayerY = 0;
 
   function onEvent(ev) {
     if (!ev) return;
     if (ev.type === 'hit') {
       shakeT = 0.25;
       hitFlashT = 0.25;
+    } else if (ev.type === 'flap') {
+      flapTimer = 0.6;
+      const p = project(lastPlayerX + 0.25, lastPlayerY + 1.15, 0.05, lastCamX);
+      spawnFeathers(p.sx, p.sy);
+      spawnFloatingScore('GÀ VỖ CÁNH!', p.sx, p.sy - 30, false);
+    } else if (ev.type === 'drop') {
+      dropAnim.active = true;
+      dropAnim.t = 0;
+      dropAnim.startX = lastPlayerX;
+      dropAnim.targetX = lastPlayerX <= 0 ? -4.5 : 4.5;
+      const p = project(lastPlayerX, 1.0, 0, lastCamX);
+      spawnFloatingScore('THẢ GÀ!', p.sx, p.sy - 30, false);
     } else if (ev.type === 'pickup') {
       const lane = ev.lane !== undefined ? ev.lane : 1;
       const p = project(laneX(lane), 0.5, 0, lastCamX);
@@ -120,9 +169,24 @@ export function createRenderer(canvas) {
     bg.setBrandLogo(img);
   }
 
-  function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60, brandLogo = null, isNewBest = false) {
+  function render(
+    state,
+    bestScore = 0,
+    sprites = null,
+    fps = null,
+    loading = false,
+    dt = 1 / 60,
+    brandLogo = null,
+    isNewBest = false,
+    justUnlockedGa = false,
+    unlockAll = false,
+    flashCharSelectT = 0
+  ) {
     const camX = cameraX(state.player.x);
     lastCamX = camX;
+    lastPlayerX = state.player.x;
+    lastPlayerY = state.player.y;
+
     const delta = typeof dt === 'number' && dt > 0 ? dt : 1 / 60;
     animTime += delta;
     const activeLogo = brandLogo || defaultBrandLogo;
@@ -133,13 +197,43 @@ export function createRenderer(canvas) {
     if (state.phase === 'ready') {
       shakeT = 0;
       hitFlashT = 0;
+      flapTimer = 0;
+      dropAnim.active = false;
       for (let i = 0; i < floatScoresPool.length; i++) {
         floatScoresPool[i].active = false;
       }
+      for (let i = 0; i < feathersPool.length; i++) {
+        feathersPool[i].active = false;
+      }
     } else {
-      const delta = typeof dt === 'number' && dt > 0 ? dt : 1 / 60;
       if (shakeT > 0) shakeT = Math.max(0, shakeT - delta);
       if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - delta);
+
+      if (flapTimer > 0) {
+        flapTimer = Math.max(0, flapTimer - delta);
+        flapPhase += 30 * delta;
+      } else {
+        flapPhase += 6 * delta;
+      }
+
+      if (dropAnim.active) {
+        dropAnim.t += delta;
+        if (dropAnim.t >= 0.8) {
+          dropAnim.active = false;
+        }
+      }
+
+      for (let i = 0; i < feathersPool.length; i++) {
+        const f = feathersPool[i];
+        if (f.active) {
+          f.x += f.vx * delta;
+          f.y += f.vy * delta;
+          f.life -= delta;
+          if (f.life <= 0) {
+            f.active = false;
+          }
+        }
+      }
 
       for (let i = 0; i < floatScoresPool.length; i++) {
         const f = floatScoresPool[i];
@@ -219,7 +313,7 @@ export function createRenderer(canvas) {
       }
     }
 
-    // Tèo
+    // Tèo / Trộm Gà
     playerRenderItem.x = state.player.x;
     playerRenderItem.y = state.player.y;
     playerRenderItem.z = 0;
@@ -385,7 +479,7 @@ export function createRenderer(canvas) {
           ctx.drawImage(c.canvas, p.sx - w / 2, p.sy - h / 2, w, h);
         }
       } else if (item.kind === 'player') {
-        // Bóng của Tèo
+        // Bóng của người chơi
         const pGnd = project(item.x, 0, 0, camX);
         const alpha = 0.35 * (1 - Math.min(item.y / 1.2, 0.6));
         ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
@@ -393,7 +487,24 @@ export function createRenderer(canvas) {
         ctx.ellipse(pGnd.sx, pGnd.sy, 0.45 * pGnd.scale, 0.16 * pGnd.scale, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        if (sprites && sprites.teo) {
+        const isGa = state.characterId === 'GA';
+        const chickenHeld = Boolean(state.chicken && state.chicken.held);
+
+        if (isGa && sprites && sprites.gathief && sprites.gathief.data && sprites.gathief.data.animations) {
+          const baseAnim = teoAnim(state);
+          const animName = animNameFor(baseAnim.name, chickenHeld);
+          const aData = sprites.gathief.data.animations[animName] || sprites.gathief.data.animations[baseAnim.name];
+          const fIdx = frameIndex(aData.frames.length, baseAnim.u, baseAnim.loop);
+          const fKey = aData.frames[fIdx];
+          const f = sprites.gathief.data.frames[fKey];
+          const p = project(item.x, item.y, 0, camX);
+          const k = spriteScale(p.scale);
+          const [ax, ay] = sprites.gathief.data.anchor;
+          ctx.drawImage(sprites.gathief.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
+
+          lastAnim.teo.name = animName;
+          lastAnim.teo.frame = fIdx;
+        } else if (sprites && sprites.teo) {
           const anim = teoAnim(state);
           const aData = sprites.teo.data.animations[anim.name];
           const fIdx = frameIndex(aData.frames.length, anim.u, anim.loop);
@@ -403,6 +514,13 @@ export function createRenderer(canvas) {
           const k = spriteScale(p.scale);
           const [ax, ay] = sprites.teo.data.anchor;
           ctx.drawImage(sprites.teo.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
+
+          // Dự phòng khi là Trộm Gà ôm gà: vẽ gà code trước ngực
+          if (isGa && chickenHeld) {
+            const pChicken = project(item.x + 0.25, item.y + 1.15, 0.05, camX);
+            const sChicken = 0.45 * pChicken.scale;
+            chickenIcon(ctx, pChicken.sx, pChicken.sy, sChicken, flapPhase);
+          }
 
           lastAnim.teo.name = anim.name;
           lastAnim.teo.frame = fIdx;
@@ -428,7 +546,13 @@ export function createRenderer(canvas) {
           ctx.font = `700 ${Math.max(16, Math.round(scale * 0.35))}px ${UI_FONT}`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText('TÈO', pBot.sx, top + h / 2);
+          ctx.fillText(isGa ? 'TRỘM GÀ' : 'TÈO', pBot.sx, top + h / 2);
+
+          if (isGa && chickenHeld) {
+            const pChicken = project(item.x + 0.25, item.y + 1.15, 0.05, camX);
+            const sChicken = 0.45 * pChicken.scale;
+            chickenIcon(ctx, pChicken.sx, pChicken.sy, sChicken, flapPhase);
+          }
 
           lastAnim.teo.name = 'fallback';
           lastAnim.teo.frame = 0;
@@ -482,18 +606,40 @@ export function createRenderer(canvas) {
       }
     }
 
+    // Vẽ gà thả chạy ngang ra mép đường
+    if (dropAnim.active) {
+      const dropProgress = Math.min(1, dropAnim.t / 0.8);
+      const curX = dropAnim.startX + (dropAnim.targetX - dropAnim.startX) * dropProgress;
+      const pDrop = project(curX, 0, 0, camX);
+      const sDrop = 0.45 * pDrop.scale;
+      chickenIcon(ctx, pDrop.sx, pDrop.sy - sDrop * 0.4, sDrop, animTime * 30);
+    }
+
     // 4. Sương xa chân trời
     bg.renderFarFog(ctx);
 
-    // Điểm bay (+N)
+    // Vẽ 6 hạt lông gà bay ra khi vỗ cánh
+    for (let i = 0; i < feathersPool.length; i++) {
+      const f = feathersPool[i];
+      if (f.active) {
+        const alpha = Math.max(0, f.life / 0.6);
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Điểm bay (+N) và thông báo bay
     for (let i = 0; i < floatScoresPool.length; i++) {
       const f = floatScoresPool[i];
       if (f.active) {
         const progress = f.t / 0.6;
         const curY = f.y - progress * 60;
         const isYabai = f.text.includes('YABAI');
+        const isSpecial = f.text === 'GÀ VỖ CÁNH!' || f.text === 'THẢ GÀ!';
         const color = isYabai ? '#fbbf24' : '#fde047';
-        const size = isYabai ? 32 : 30;
+        const size = isSpecial ? 28 : (isYabai ? 32 : 30);
         outlinedText(ctx, f.text, f.x, curY, size, 800, color);
       }
     }
@@ -574,8 +720,20 @@ export function createRenderer(canvas) {
 
       outlinedText(ctx, `CẢNH SÁT ${Math.round(state.meter)}%`, HUD.meter.x + HUD.meter.w / 2, HUD.meter.y + HUD.meter.h / 2, 20, 800, '#ffffff');
 
+      // HUD khi là Trộm Gà ôm gà: biểu tượng gà + ×1 hoặc ×0
+      if (state.characterId === 'GA' && state.chicken && state.chicken.held) {
+        ctx.save();
+        if (!state.chicken.flapReady) {
+          ctx.globalAlpha = 0.4;
+        }
+        chickenIcon(ctx, 40, 136, 28, flapPhase);
+        outlinedText(ctx, state.chicken.flapReady ? '×1' : '×0', 66, 136, 22, 800, '#ffffff', { align: 'left' });
+        ctx.restore();
+      }
+
       if (fps !== null && fps !== undefined) {
-        outlinedText(ctx, `${fps} FPS`, 20, 130, 16, 700, '#22c55e', { align: 'left' });
+        const fpsY = state.characterId === 'GA' ? 170 : 130;
+        outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
       }
     }
 
@@ -585,7 +743,7 @@ export function createRenderer(canvas) {
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
       const bobY = reducedMotion ? 0 : 4 * Math.sin(animTime * 2);
-      outlinedText(ctx, 'BHP Run', 270, 300 + bobY, 104, 800, '#fde047', {
+      outlinedText(ctx, 'BHP Run', 270, 280 + bobY, 104, 800, '#fde047', {
         stroke: '#0b1530',
         strokeW: 14,
         shadow: '#db2777',
@@ -598,16 +756,16 @@ export function createRenderer(canvas) {
       if (subMeasure <= 440) {
         const subW = Math.min(480, subMeasure + 40);
         const subH = 44;
-        pill(ctx, 270 - subW / 2, 384 - subH / 2, subW, subH, 'rgba(11, 21, 48, 0.88)', '#f472b6', 3);
-        outlinedText(ctx, subText, 270, 384, 22, 700, '#ffffff');
+        pill(ctx, 270 - subW / 2, 360 - subH / 2, subW, subH, 'rgba(11, 21, 48, 0.88)', '#f472b6', 3);
+        outlinedText(ctx, subText, 270, 360, 22, 700, '#ffffff');
       } else {
         const subLines = wrapText(subText, 440, str => ctx.measureText(str).width);
         const subH = subLines.length * 30 + 14;
         const maxLineW = Math.max(...subLines.map(l => ctx.measureText(l).width));
         const subW = Math.min(480, maxLineW + 40);
-        pill(ctx, 270 - subW / 2, 384 - subH / 2, subW, subH, 'rgba(11, 21, 48, 0.88)', '#f472b6', 3);
+        pill(ctx, 270 - subW / 2, 360 - subH / 2, subW, subH, 'rgba(11, 21, 48, 0.88)', '#f472b6', 3);
         for (let i = 0; i < subLines.length; i++) {
-          const lineY = 384 - ((subLines.length - 1) * 30) / 2 + i * 30;
+          const lineY = 360 - ((subLines.length - 1) * 30) / 2 + i * 30;
           outlinedText(ctx, subLines[i], 270, lineY, 22, 700, '#ffffff');
         }
       }
@@ -616,15 +774,54 @@ export function createRenderer(canvas) {
       ctx.font = `800 22px ${UI_FONT}`;
       const recBadgeW = ctx.measureText(bestStr).width + 56;
       const recBadgeH = 44;
-      pill(ctx, 270 - recBadgeW / 2, 470 - recBadgeH / 2, recBadgeW, recBadgeH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
-      crown(ctx, 270 - recBadgeW / 2 + 22, 470, 20, '#fbbf24');
-      outlinedText(ctx, bestStr, 270 + 12, 470, 22, 800, '#fbbf24');
+      pill(ctx, 270 - recBadgeW / 2, 430 - recBadgeH / 2, recBadgeW, recBadgeH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+      crown(ctx, 270 - recBadgeW / 2 + 22, 430, 20, '#fbbf24');
+      outlinedText(ctx, bestStr, 270 + 12, 430, 22, 800, '#fbbf24');
+
+      // Ô chọn nhân vật (charCard, charPrev, charNext)
+      const currentChar = CHARACTERS[state.characterId] || CHARACTERS.TEO;
+      const unlocked = isUnlocked(currentChar.id, bestScore, unlockAll);
+
+      let cardBorder = unlocked ? '#22d3ee' : '#64748b';
+      if (flashCharSelectT > 0) {
+        const flashTick = Math.floor(animTime * 10) % 2 === 0;
+        cardBorder = flashTick ? '#fde047' : '#22d3ee';
+      }
+
+      // Thẻ thông tin nhân vật
+      pill(ctx, HUD.charCard.x, HUD.charCard.y, HUD.charCard.w, HUD.charCard.h, 'rgba(11, 21, 48, 0.88)', cardBorder, 3);
+      if (unlocked) {
+        outlinedText(ctx, currentChar.name, 270, 484, 26, 800, '#ffffff');
+        outlinedText(ctx, currentChar.desc, 270, 512, 16, 600, '#cbd5e1');
+      } else {
+        ctx.font = `800 26px ${UI_FONT}`;
+        const nameW = ctx.measureText(currentChar.name).width;
+        lockIcon(ctx, 270 - nameW / 2 - 16, 484, 20);
+        outlinedText(ctx, currentChar.name, 270 + 10, 484, 26, 800, '#ffffff');
+        outlinedText(ctx, 'Mở khoá: kỷ lục 5 000', 270, 512, 16, 600, '#fbbf24');
+      }
+
+      // Nút điều hướng nhân vật: trái và phải
+      pill(ctx, 72 - 28, 496 - 28, 56, 56, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
+      arrowIcon(ctx, 72, 496, 16, 'left');
+
+      pill(ctx, 468 - 28, 496 - 28, 56, 56, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
+      arrowIcon(ctx, 468, 496, 16, 'right');
 
       const btnScale = reducedMotion ? 1 : (1 + 0.04 * Math.sin(animTime * 4));
-      const btnLabel = loading ? 'ĐANG TẢI…' : 'CHẠM ĐỂ CHẠY';
-      button3d(ctx, 270, 560, 380, 84, btnLabel, 36, btnScale, !loading);
+      let btnLabel = 'CHẠM ĐỂ CHẠY';
+      let btnEnabled = true;
+      if (loading) {
+        btnLabel = 'ĐANG TẢI…';
+        btnEnabled = false;
+      } else if (!unlocked) {
+        btnLabel = 'CẦN 5 000 ĐIỂM';
+        btnEnabled = false;
+      }
 
-      const chipY = 660;
+      button3d(ctx, 270, 584, 380, 84, btnLabel, 36, btnScale, btnEnabled);
+
+      const chipY = 676;
       const chipR = 26;
       const chips = [
         { x: 170, kind: 'lr', label: 'Đổi làn' },
@@ -634,20 +831,21 @@ export function createRenderer(canvas) {
       for (const chip of chips) {
         pill(ctx, chip.x - chipR, chipY - chipR, chipR * 2, chipR * 2, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
         arrowIcon(ctx, chip.x, chipY, 15, chip.kind);
-        outlinedText(ctx, chip.label, chip.x, 712, 18, 700, '#cbd5e1');
+        outlinedText(ctx, chip.label, chip.x, 728, 18, 700, '#cbd5e1');
       }
 
-      outlinedText(ctx, 'Một game của', 270, 770, 18, 700, '#94a3b8');
+      outlinedText(ctx, 'Một game của', 270, 782, 18, 700, '#94a3b8');
       if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
         const logoW = 220;
         const logoH = logoW * (213 / 845);
         const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 788;
+        const logoY = 798;
         ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
       }
 
       if (fps !== null && fps !== undefined) {
-        outlinedText(ctx, `${fps} FPS`, 20, 130, 16, 700, '#22c55e', { align: 'left' });
+        const fpsY = state.characterId === 'GA' ? 170 : 130;
+        outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
       }
     } else if (state.phase === 'caught') {
       ctx.fillStyle = 'rgba(8, 12, 34, 0.62)';
@@ -659,7 +857,7 @@ export function createRenderer(canvas) {
       const reasonText = state.caughtReason === 'meter' ? 'Cảnh sát bắt kịp rồi.' : 'Vấp hai lần liên tiếp.';
       outlinedText(ctx, reasonText, 270, 268, 24, 700, '#fca5a5');
 
-      const quipText = quipFor(state.seed);
+      const quipText = quipFor(state.seed, state.characterId);
       ctx.font = `600 24px ${UI_FONT}`;
       const quipLines = wrapText(quipText, 360, str => ctx.measureText(str).width);
       const quipBoxH = quipLines.length <= 1 ? 64 : 96;
@@ -701,7 +899,14 @@ export function createRenderer(canvas) {
       });
       outlinedText(ctx, scoreStr, 270, 488, scoreSize, 800, '#ffffff');
 
-      if (isNewBest) {
+      if (justUnlockedGa) {
+        const unlockStr = 'MỞ KHOÁ: TRỘM GÀ!';
+        ctx.font = `800 20px ${UI_FONT}`;
+        const ubW = ctx.measureText(unlockStr).width + 48;
+        const ubH = 40;
+        pill(ctx, 270 - ubW / 2, 548 - ubH / 2, ubW, ubH, '#f472b6', '#0b1530', 3);
+        outlinedText(ctx, unlockStr, 270, 548, 20, 800, '#ffffff');
+      } else if (isNewBest) {
         const newBestStr = 'KỶ LỤC MỚI!';
         ctx.font = `800 20px ${UI_FONT}`;
         const nbW = ctx.measureText(newBestStr).width + 48;
@@ -737,7 +942,8 @@ export function createRenderer(canvas) {
       }
 
       if (fps !== null && fps !== undefined) {
-        outlinedText(ctx, `${fps} FPS`, 20, 130, 16, 700, '#22c55e', { align: 'left' });
+        const fpsY = state.characterId === 'GA' ? 170 : 130;
+        outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
       }
     }
 

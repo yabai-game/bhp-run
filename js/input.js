@@ -1,13 +1,15 @@
-import { classifySwipe, isTap } from './gesture.js';
+import { classifySwipe, isTap, isDoubleTap } from './gesture.js';
 
 export function createInput(canvas) {
   const queue = [];
+  const tapsQueue = [];
 
   let activePointerId = null;
   let startX = 0;
   let startY = 0;
   let startTime = 0;
   let swipeLocked = false;
+  let lastTapTime = 0;
 
   function onPointerDown(e) {
     if (activePointerId !== null) return;
@@ -42,6 +44,24 @@ export function createInput(canvas) {
       const elapsed = performance.now() - startTime;
       if (isTap(dx, dy, elapsed)) {
         queue.push('start');
+        const now = performance.now();
+        if (lastTapTime > 0 && isDoubleTap(lastTapTime, now)) {
+          queue.push('drop');
+          lastTapTime = 0;
+        } else {
+          lastTapTime = now;
+        }
+
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          const cssW = rect.width || 540;
+          const cssH = rect.height || 960;
+          const scaleX = 540 / cssW;
+          const scaleY = 960 / cssH;
+          const logicX = (e.clientX - rect.left) * scaleX;
+          const logicY = (e.clientY - rect.top) * scaleY;
+          tapsQueue.push({ x: logicX, y: logicY });
+        }
       }
     }
     activePointerId = null;
@@ -65,8 +85,15 @@ export function createInput(canvas) {
         handled = true;
         break;
       case 'ArrowRight':
-      case 'KeyD':
         queue.push('right');
+        handled = true;
+        break;
+      case 'KeyD':
+        queue.push('drop');
+        handled = true;
+        break;
+      case 'KeyC':
+        queue.push('char_next');
         handled = true;
         break;
       case 'ArrowUp':
@@ -107,6 +134,12 @@ export function createInput(canvas) {
       const actions = queue.slice();
       queue.length = 0;
       return actions;
+    },
+    pollTaps() {
+      if (tapsQueue.length === 0) return [];
+      const taps = tapsQueue.slice();
+      tapsQueue.length = 0;
+      return taps;
     },
     destroy() {
       canvas.removeEventListener('pointerdown', onPointerDown);

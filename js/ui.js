@@ -249,7 +249,117 @@ export function arrowIcon(ctx, cx, cy, r, kind) {
     ctx.lineTo(cx, cy + r * 0.55);
     ctx.lineTo(cx + r * 0.45, cy + r * 0.15);
     ctx.stroke();
+  } else if (kind === 'left') {
+    // Mũi tên trái
+    ctx.beginPath();
+    ctx.moveTo(cx + r * 0.4, cy - r * 0.45);
+    ctx.lineTo(cx - r * 0.35, cy);
+    ctx.lineTo(cx + r * 0.4, cy + r * 0.45);
+    ctx.stroke();
+  } else if (kind === 'right') {
+    // Mũi tên phải
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.4, cy - r * 0.45);
+    ctx.lineTo(cx + r * 0.35, cy);
+    ctx.lineTo(cx - r * 0.4, cy + r * 0.45);
+    ctx.stroke();
   }
+
+  ctx.restore();
+}
+
+export function lockIcon(ctx, cx, cy, s) {
+  ctx.save();
+  const strokeW = Math.max(2, s * 0.12);
+
+  // Quai khoá (shackle)
+  ctx.beginPath();
+  ctx.arc(cx, cy - s * 0.14, s * 0.24, Math.PI, 0);
+  ctx.lineTo(cx + s * 0.24, cy - s * 0.02);
+  ctx.lineTo(cx - s * 0.24, cy - s * 0.02);
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = strokeW;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Thân khoá (body)
+  const bw = s * 0.72;
+  const bh = s * 0.52;
+  const bx = cx - bw / 2;
+  const by = cy - s * 0.04;
+  roundedRectPath(ctx, bx, by, bw, bh, 4);
+  ctx.fillStyle = '#fbbf24';
+  ctx.fill();
+  ctx.strokeStyle = '#0b1530';
+  ctx.lineWidth = Math.max(1.5, s * 0.08);
+  ctx.stroke();
+
+  // Lỗ khoá (keyhole)
+  ctx.beginPath();
+  ctx.arc(cx, by + bh * 0.4, s * 0.09, 0, Math.PI * 2);
+  ctx.fillStyle = '#0b1530';
+  ctx.fill();
+  ctx.fillRect(cx - s * 0.04, by + bh * 0.4, s * 0.08, bh * 0.35);
+
+  ctx.restore();
+}
+
+export function chickenIcon(ctx, cx, cy, s, flapPhase = 0) {
+  ctx.save();
+  const borderW = Math.max(2, s * 0.07);
+
+  // 1. Mào đỏ 3 bướu
+  ctx.fillStyle = '#ef4444';
+  ctx.strokeStyle = '#0b1530';
+  ctx.lineWidth = Math.max(1.5, borderW * 0.7);
+  const headX = cx + s * 0.22;
+  const headY = cy - s * 0.22;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.arc(headX + i * s * 0.09, headY - s * 0.14 - Math.abs(i) * s * 0.02, s * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // 2. Mỏ tam giác vàng
+  ctx.fillStyle = '#fbbf24';
+  ctx.beginPath();
+  ctx.moveTo(cx + s * 0.34, cy - s * 0.18);
+  ctx.lineTo(cx + s * 0.52, cy - s * 0.12);
+  ctx.lineTo(cx + s * 0.34, cy - s * 0.06);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // 3. Yếm đỏ dưới mỏ
+  ctx.fillStyle = '#ef4444';
+  ctx.beginPath();
+  ctx.arc(cx + s * 0.30, cy + s * 0.02, s * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // 4. Thân elip trắng
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#0b1530';
+  ctx.lineWidth = borderW;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s * 0.42, s * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // 5. Mắt đen
+  ctx.fillStyle = '#0b1530';
+  ctx.beginPath();
+  ctx.arc(cx + s * 0.24, cy - s * 0.14, Math.max(1.5, s * 0.045), 0, Math.PI * 2);
+  ctx.fill();
+
+  // 6. Cánh elip vỗ (scaleY theo flapPhase)
+  const wingScaleY = 0.6 + 0.4 * Math.abs(Math.sin(flapPhase));
+  ctx.fillStyle = '#e2e8f0';
+  ctx.beginPath();
+  ctx.ellipse(cx - s * 0.08, cy, s * 0.22, s * 0.18 * wingScaleY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
 
   ctx.restore();
 }

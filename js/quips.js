@@ -13,8 +13,16 @@ export const QUIPS = [
   'Lời khuyên của Tèo: đi đúng đường, khỏi phải chạy.'
 ];
 
-export function quipFor(seed) {
-  return QUIPS[(seed >>> 0) % QUIPS.length];
+export const QUIPS_GA = [
+  'Trộm gà thì gà chạy, người vào đồn.',
+  'Gà của trại, còng của cảnh sát.',
+  'Ôm gà chạy sao thoát? Đừng trộm, đừng làm BHP.',
+  'Con gà còn biết đường về chuồng — người thì về đồn.'
+];
+
+export function quipFor(seed, characterId = 'TEO') {
+  const list = characterId === 'GA' ? QUIPS_GA : QUIPS;
+  return list[(seed >>> 0) % list.length];
 }
 
 export function wrapText(text, maxWidth, measureFn) {
