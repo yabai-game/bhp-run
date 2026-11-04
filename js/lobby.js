@@ -377,11 +377,12 @@ export function createLobby() {
     ctx.textBaseline = 'top';
     ctx.fillText('HOÀN CẢNH', 52, 800);
 
-    ctx.font = `600 13px ${UI_FONT}`;
-    ctx.fillStyle = '#e2e8f0';
+    // 16 px (chủ kênh 2026-11-04: chữ hoàn cảnh to hơn) — mọi câu chuyện hiện tại gói đúng 2 dòng trong 436 px
+    ctx.font = `700 16px ${UI_FONT}`;
+    ctx.fillStyle = '#f1f5f9';
     const storyLines = wrapText(charDef.story, 436, s => ctx.measureText(s).width);
-    for (let l = 0; l < Math.min(3, storyLines.length); l++) {
-      ctx.fillText(storyLines[l], 52, 818 + l * 16);
+    for (let l = 0; l < Math.min(2, storyLines.length); l++) {
+      ctx.fillText(storyLines[l], 52, 816 + l * 20);
     }
 
     // Nút chọn / Thanh tiến độ
