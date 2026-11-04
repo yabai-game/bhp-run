@@ -1,4 +1,4 @@
-const APP_VERSION = 'g09';
+const APP_VERSION = 'g10';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
@@ -46,6 +46,12 @@ const ASSETS = [
   './assets/sprites/lobby_ga.json',
   './assets/sprites/lobby_no.webp',
   './assets/sprites/lobby_no.json',
+  './assets/sprites/caught_teo.webp',
+  './assets/sprites/caught_teo.json',
+  './assets/sprites/caught_ga.webp',
+  './assets/sprites/caught_ga.json',
+  './assets/sprites/caught_no.webp',
+  './assets/sprites/caught_no.json',
   './assets/sprites/police.webp',
   './assets/sprites/police.json',
   './assets/sprites/props.webp',

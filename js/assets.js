@@ -137,3 +137,45 @@ export function loadSprites() {
 
   return { ready, late };
 }
+
+export function loadCaughtSprites() {
+  const caught = { teo: null, ga: null, no: null };
+
+  const loadSingle = async (baseName) => {
+    try {
+      const res = await fetch(`assets/sprites/${baseName}.json`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const img = new Image();
+      await new Promise((resolve) => {
+        img.onload = () => {
+          if (typeof img.decode === 'function') img.decode().catch(() => {});
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = `assets/sprites/${data.image || `${baseName}.webp`}`;
+      });
+      return img.naturalWidth > 0 ? { img, data } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const pTeo = loadSingle('caught_teo');
+  const pGa = loadSingle('caught_ga');
+  const pNo = loadSingle('caught_no');
+
+  const ready = Promise.all([pTeo, pGa, pNo]).then(([teo, ga, no]) => {
+    caught.teo = teo;
+    caught.ga = ga;
+    caught.no = no;
+    return caught;
+  });
+
+  return {
+    get teo() { return caught.teo; },
+    get ga() { return caught.ga; },
+    get no() { return caught.no; },
+    ready
+  };
+}

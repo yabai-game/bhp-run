@@ -31,11 +31,12 @@ import {
   isTokenReady,
   isBillboardReady
 } from './brandart.js';
-import { HUD, fitFontSize, formatScore, meterColor } from './hudlayout.js';
+import { HUD, CAUGHT, fitFontSize, formatScore, meterColor } from './hudlayout.js';
 import {
   outlinedText,
   pill,
   button3d,
+  secondaryButton3d,
   card,
   ribbon,
   crown,
@@ -81,7 +82,8 @@ export function createRenderer(canvas) {
 
   let shakeT = 0;
   let hitFlashT = 0;
-
+  let caughtSprites = null;
+  let caughtT = 0;
   // Pool 12 phần tử tĩnh cho điểm bay (+N) và thông báo hiệu ứng
   const floatScoresPool = [];
   for (let i = 0; i < 12; i++) {
@@ -222,8 +224,12 @@ export function createRenderer(canvas) {
     isNewBest = false,
     justUnlockedGa = false,
     unlockAll = false,
-    flashCharSelectT = 0
+    flashCharSelectT = 0,
+    caughtSpritesParam = null
   ) {
+    if (caughtSpritesParam) {
+      caughtSprites = caughtSpritesParam;
+    }
     const camX = cameraX(state.player.x);
     lastCamX = camX;
     lastPlayerX = state.player.x;
@@ -238,6 +244,7 @@ export function createRenderer(canvas) {
     ctx.imageSmoothingQuality = 'high';
 
     if (state.phase === 'ready') {
+      caughtT = 0;
       shakeT = 0;
       hitFlashT = 0;
       flapTimer = 0;
@@ -999,14 +1006,40 @@ export function createRenderer(canvas) {
         outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
       }
     } else if (state.phase === 'caught') {
+      caughtT += delta;
       ctx.fillStyle = 'rgba(8, 12, 34, 0.62)';
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-      card(ctx, 40, 200, 460, 580, '#ef4444');
-      ribbon(ctx, 270, 200, 'BỊ TÓM!', 44, '#ef4444', '#ffffff');
+      // Ảnh "bị bắt đứng khóc" nếu có sprite
+      const charKey = state.characterId === 'GA' ? 'ga' : (state.characterId === 'NO' ? 'no' : 'teo');
+      const caughtAtlas = caughtSprites ? caughtSprites[charKey] : null;
+      if (caughtAtlas && caughtAtlas.img && caughtAtlas.data) {
+        const anim = caughtAtlas.data.animations?.cry;
+        const frames = anim?.frames || Object.keys(caughtAtlas.data.frames || {});
+        if (frames.length > 0) {
+          const duration = anim?.duration || 1.0;
+          const u = (caughtT % duration) / duration;
+          const fIdx = Math.min(frames.length - 1, Math.floor(u * frames.length));
+          const frameKey = frames[fIdx];
+          const frame = caughtAtlas.data.frames[frameKey];
+          if (frame) {
+            ctx.save();
+            ctx.globalAlpha = Math.min(1, caughtT / 0.3);
+            ctx.drawImage(
+              caughtAtlas.img,
+              frame.x, frame.y, frame.w, frame.h,
+              CAUGHT.art.x, CAUGHT.art.y, CAUGHT.art.w, CAUGHT.art.h
+            );
+            ctx.restore();
+          }
+        }
+      }
+
+      card(ctx, CAUGHT.card.x, CAUGHT.card.y, CAUGHT.card.w, CAUGHT.card.h, '#ef4444');
+      ribbon(ctx, 270, 362, 'BỊ TÓM!', 44, '#ef4444', '#ffffff');
 
       const reasonText = state.caughtReason === 'meter' ? 'Cảnh sát bắt kịp rồi.' : 'Vấp hai lần liên tiếp.';
-      outlinedText(ctx, reasonText, 270, 268, 24, 700, '#fca5a5');
+      outlinedText(ctx, reasonText, 270, 424, 24, 700, '#fca5a5');
 
       const quipText = quipFor(state.seed, state.characterId);
       ctx.font = `600 24px ${UI_FONT}`;
@@ -1015,7 +1048,7 @@ export function createRenderer(canvas) {
 
       ctx.beginPath();
       const qx = 72;
-      const qy = 296;
+      const qy = 450;
       const qw = 396;
       const qh = quipBoxH;
       const qr = 18;
@@ -1042,13 +1075,13 @@ export function createRenderer(canvas) {
         ctx.fillText(quipLines[1], 270, qy + 16 + 16 + 32);
       }
 
-      outlinedText(ctx, 'ĐIỂM', 270, 430, 20, 700, '#94a3b8');
+      outlinedText(ctx, 'ĐIỂM', 270, 584, 20, 700, '#94a3b8');
       const scoreStr = formatScore(state.score);
       const scoreSize = fitFontSize(scoreStr, 380, 72, 44, (t, s) => {
         ctx.font = `800 ${s}px ${UI_FONT}`;
         return ctx.measureText(t).width;
       });
-      outlinedText(ctx, scoreStr, 270, 488, scoreSize, 800, '#ffffff');
+      outlinedText(ctx, scoreStr, 270, 640, scoreSize, 800, '#ffffff');
 
       const newlyUnlocked = Array.isArray(justUnlockedGa)
         ? justUnlockedGa
@@ -1059,31 +1092,32 @@ export function createRenderer(canvas) {
         ctx.font = `800 20px ${UI_FONT}`;
         const ubW = ctx.measureText(unlockStr).width + 48;
         const ubH = 40;
-        pill(ctx, 270 - ubW / 2, 548 - ubH / 2, ubW, ubH, '#f472b6', '#0b1530', 3);
-        outlinedText(ctx, unlockStr, 270, 548, 20, 800, '#ffffff');
+        pill(ctx, 270 - ubW / 2, 698 - ubH / 2, ubW, ubH, '#f472b6', '#0b1530', 3);
+        outlinedText(ctx, unlockStr, 270, 698, 20, 800, '#ffffff');
       } else if (isNewBest) {
         const newBestStr = 'KỶ LỤC MỚI!';
         ctx.font = `800 20px ${UI_FONT}`;
         const nbW = ctx.measureText(newBestStr).width + 48;
         const nbH = 40;
-        pill(ctx, 270 - nbW / 2, 548 - nbH / 2, nbW, nbH, '#fbbf24', '#0b1530', 3);
+        pill(ctx, 270 - nbW / 2, 698 - nbH / 2, nbW, nbH, '#fbbf24', '#0b1530', 3);
         ctx.font = `800 20px ${UI_FONT}`;
         ctx.fillStyle = '#3b2603';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(newBestStr, 270, 548);
+        ctx.fillText(newBestStr, 270, 698);
       } else {
         const bestStr = `Kỷ lục: ${formatScore(bestScore)}`;
         ctx.font = `700 22px ${UI_FONT}`;
         const bW = ctx.measureText(bestStr).width + 56;
         const bH = 40;
-        pill(ctx, 270 - bW / 2, 548 - bH / 2, bW, bH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
-        crown(ctx, 270 - bW / 2 + 22, 548, 18, '#fbbf24');
-        outlinedText(ctx, bestStr, 270 + 12, 548, 22, 700, '#fbbf24');
+        pill(ctx, 270 - bW / 2, 698 - bH / 2, bW, bH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+        crown(ctx, 270 - bW / 2 + 22, 698, 18, '#fbbf24');
+        outlinedText(ctx, bestStr, 270 + 12, 698, 22, 700, '#fbbf24');
       }
 
       const restartEnabled = state.restartLockT <= 0;
-      button3d(ctx, 270, 640, 380, 80, 'CHẠY LẠI', 34, 1, restartEnabled);
+      secondaryButton3d(ctx, CAUGHT.menuBtn.x + CAUGHT.menuBtn.w / 2, CAUGHT.menuBtn.y + CAUGHT.menuBtn.h / 2, CAUGHT.menuBtn.w, CAUGHT.menuBtn.h, 'MENU', 28);
+      button3d(ctx, CAUGHT.restartBtn.x + CAUGHT.restartBtn.w / 2, CAUGHT.restartBtn.y + CAUGHT.restartBtn.h / 2, CAUGHT.restartBtn.w, CAUGHT.restartBtn.h, 'CHẠY LẠI', 32, 1, restartEnabled);
 
       if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
         const prevAlpha = ctx.globalAlpha;
@@ -1091,7 +1125,7 @@ export function createRenderer(canvas) {
         const logoW = 150;
         const logoH = logoW * (213 / 845);
         const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 708;
+        const logoY = 852;
         ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
         ctx.globalAlpha = prevAlpha;
       }
@@ -1116,6 +1150,9 @@ export function createRenderer(canvas) {
     lastAnim,
     onEvent,
     setBrandLogo,
+    setCaughtSprites(cs) {
+      caughtSprites = cs;
+    },
     get drawnBoardsCount() {
       return drawnBoardsCount;
     },

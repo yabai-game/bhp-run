@@ -33,7 +33,7 @@ export const SPEED_MAX = 30;
 export const STUMBLE_SPEED_MUL = 0.7;
 export const STUMBLE_TIME = 2.0;
 export const METER_HIT = 35;
-export const METER_DECAY = 4;
+export const METER_DECAY = 2;
 export const METER_MAX = 100;
 export const RESTART_LOCK = 0.6;
 

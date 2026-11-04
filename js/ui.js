@@ -118,6 +118,33 @@ export function button3d(ctx, cx, cy, w, h, label, size, scale = 1, enabled = tr
   ctx.restore();
 }
 
+export function secondaryButton3d(ctx, cx, cy, w, h, label, size = 28) {
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  const halfW = w / 2;
+  const halfH = h / 2;
+  const x = -halfW;
+  const y = -halfH;
+
+  // 1. Cạnh dưới lệch xuống 8 px
+  pill(ctx, x, y + 8, w, h, '#0b1530', '#0b1530', 4);
+
+  // 2. Thân nút: thân #0f1a3a, viền #22d3ee 4 px
+  pill(ctx, x, y, w, h, '#0f1a3a', '#22d3ee', 4);
+
+  // 3. Chữ: 800 size px #e2e8f0
+  if (label) {
+    ctx.font = `800 ${size}px ${UI_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(label, 0, 0);
+  }
+
+  ctx.restore();
+}
+
 export function card(ctx, x, y, w, h, border = '#ef4444') {
   // 1. Bóng khối lệch 8 px xuống
   roundedRectPath(ctx, x, y + 8, w, h, 28);

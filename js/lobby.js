@@ -57,16 +57,6 @@ export function createLobby() {
     spotCtx.fillRect(0, 0, 600, 600);
   }
 
-  // 2. Canvas offscreen 384 × 512 tái dùng để vẽ bóng đen nhân vật khoá
-  let silCanvas = null;
-  let silCtx = null;
-  if (typeof document !== 'undefined') {
-    silCanvas = document.createElement('canvas');
-    silCanvas.width = 384;
-    silCanvas.height = 512;
-    silCtx = silCanvas.getContext('2d');
-  }
-
   // 3. Nạp lười 3 atlas lobby khi mở lobby lần đầu
   const lobbyAtlases = { TEO: null, GA: null, NO: null };
   let isLoaded = false;
@@ -211,24 +201,8 @@ export function createLobby() {
       const f = lobbyAtlas.data.frames[fKey];
       const [ax, ay] = lobbyAtlas.data.anchor || [192, 500];
 
-      if (unlocked) {
-        ctx.drawImage(lobbyAtlas.img, f.x, f.y, f.w, f.h, 270 - ax, 566 - ay, f.w, f.h);
-      } else if (silCanvas && silCtx) {
-        silCtx.clearRect(0, 0, 384, 512);
-        silCtx.save();
-        silCtx.drawImage(lobbyAtlas.img, f.x, f.y, f.w, f.h, 192 - ax, 500 - ay, f.w, f.h);
-        silCtx.globalCompositeOperation = 'source-in';
-        silCtx.fillStyle = '#0b1530';
-        silCtx.fillRect(0, 0, 384, 512);
-        silCtx.globalCompositeOperation = 'source-over';
-        silCtx.font = `800 96px ${UI_FONT}`;
-        silCtx.textAlign = 'center';
-        silCtx.textBaseline = 'middle';
-        silCtx.fillStyle = '#64748b';
-        silCtx.fillText('?', 192, 280);
-        silCtx.restore();
-        ctx.drawImage(silCanvas, 270 - 192, 566 - 500);
-      }
+      // Nhân vật khoá vẫn hiện đủ màu (chủ kênh 2026-11-04), chỉ thêm huy hiệu ổ khoá
+      ctx.drawImage(lobbyAtlas.img, f.x, f.y, f.w, f.h, 270 - ax, 566 - ay, f.w, f.h);
     } else {
       // Fallback: khung run_00 của atlas chạy phóng x2.2
       source = 'fallback';
@@ -246,43 +220,32 @@ export function createLobby() {
         const [ax, ay] = runAtlas.data.anchor || [128, 204];
         const scale = 2.2;
 
-        if (unlocked) {
-          ctx.drawImage(
-            runAtlas.img,
-            f.x, f.y, f.w, f.h,
-            270 - ax * scale, 566 - ay * scale,
-            f.w * scale, f.h * scale
-          );
-          if (charId === 'NO') {
-            cherryBoxIcon(ctx, 270 + 44, 566 - 150, 44);
-          } else if (charId === 'GA' && runAtlas === gameSprites?.teo) {
-            chickenIcon(ctx, 270 + 38, 566 - 176, 52, 0);
-          }
-        } else if (silCanvas && silCtx) {
-          silCtx.clearRect(0, 0, 384, 512);
-          silCtx.save();
-          silCtx.drawImage(
-            runAtlas.img,
-            f.x, f.y, f.w, f.h,
-            192 - ax * scale, 500 - ay * scale,
-            f.w * scale, f.h * scale
-          );
-          if (charId === 'NO') {
-            cherryBoxIcon(silCtx, 192 + 44, 500 - 150, 44);
-          }
-          silCtx.globalCompositeOperation = 'source-in';
-          silCtx.fillStyle = '#0b1530';
-          silCtx.fillRect(0, 0, 384, 512);
-          silCtx.globalCompositeOperation = 'source-over';
-          silCtx.font = `800 96px ${UI_FONT}`;
-          silCtx.textAlign = 'center';
-          silCtx.textBaseline = 'middle';
-          silCtx.fillStyle = '#64748b';
-          silCtx.fillText('?', 192, 280);
-          silCtx.restore();
-          ctx.drawImage(silCanvas, 270 - 192, 566 - 500);
+        ctx.drawImage(
+          runAtlas.img,
+          f.x, f.y, f.w, f.h,
+          270 - ax * scale, 566 - ay * scale,
+          f.w * scale, f.h * scale
+        );
+        if (charId === 'NO') {
+          cherryBoxIcon(ctx, 270 + 44, 566 - 150, 44);
+        } else if (charId === 'GA' && runAtlas === gameSprites?.teo) {
+          chickenIcon(ctx, 270 + 38, 566 - 176, 52, 0);
         }
       }
+    }
+
+    // Huy hiệu ổ khoá cho nhân vật chưa mở (nhân vật vẫn đủ màu, chỉ không chọn được)
+    if (!unlocked) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(392, 196, 34, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f1a3a';
+      ctx.fill();
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+      lockIcon(ctx, 392, 198, 40);
     }
     lastSource = source;
 

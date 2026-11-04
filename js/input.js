@@ -96,6 +96,10 @@ export function createInput(canvas) {
         queue.push('char_next');
         handled = true;
         break;
+      case 'KeyM':
+        queue.push('menu');
+        handled = true;
+        break;
       case 'Escape':
         queue.push('escape');
         handled = true;

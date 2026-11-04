@@ -3,9 +3,9 @@ import { createGame, step } from './game.js';
 import { createInput } from './input.js';
 import { createRenderer } from './render.js';
 import { createAccState, advance } from './loop.js';
-import { loadSprites } from './assets.js';
+import { loadSprites, loadCaughtSprites } from './assets.js';
 import { initAudio, playEvent, startBgm, stopBgm, suspendAudio, resumeAudio } from './audio.js';
-import { HUD } from './hudlayout.js';
+import { HUD, CAUGHT, caughtTapAction } from './hudlayout.js';
 import {
   CHARACTERS,
   CHARACTER_ORDER,
@@ -195,10 +195,19 @@ function init() {
     get source() { return lobby.getDebugState().source; }
   };
 
+  const caughtLoader = loadCaughtSprites();
+  globalThis.__bprCaught = {
+    get art() {
+      const charKey = selectedCharId === 'GA' ? 'ga' : (selectedCharId === 'NO' ? 'no' : 'teo');
+      return (caughtLoader && caughtLoader[charKey]) ? 'sprite' : 'none';
+    }
+  };
+
   initAudio();
 
   const input = createInput(canvas);
   const renderer = createRenderer(canvas);
+  renderer.setCaughtSprites(caughtLoader);
 
   if (disclaimerOkBtn) {
     disclaimerOkBtn.addEventListener('click', (e) => {
@@ -429,6 +438,46 @@ function init() {
       }
     }
 
+    // Xử lý ở màn bị tóm (caught)
+    if (game.phase === 'caught') {
+      if (game.restartLockT <= 0) {
+        let returnToMenu = false;
+        if (actions.includes('menu') || actions.includes('escape')) {
+          returnToMenu = true;
+          actions = actions.filter(a => a !== 'menu' && a !== 'escape');
+        }
+
+        let restartRequested = false;
+        if (taps.length > 0) {
+          for (let i = 0; i < taps.length; i++) {
+            const tapAct = caughtTapAction(taps[i].x, taps[i].y);
+            if (tapAct === 'menu') {
+              returnToMenu = true;
+            } else if (tapAct === 'restart') {
+              restartRequested = true;
+            }
+          }
+        }
+
+        if (returnToMenu) {
+          const nextSeed = Date.now() >>> 0;
+          game = createGame(nextSeed, 'ready', { ...gameOpts, characterId: selectedCharId });
+          if (isDebug) {
+            globalThis.__bpr = game;
+          }
+          isNewBest = false;
+          justUnlockedList = [];
+          return [];
+        }
+
+        if (restartRequested && !actions.includes('start')) {
+          actions.push('start');
+        }
+      } else {
+        actions = actions.filter(a => a !== 'start' && a !== 'menu' && a !== 'escape');
+      }
+    }
+
     return actions;
   };
 
@@ -519,7 +568,8 @@ function init() {
       isNewBest,
       justUnlockedList,
       isUnlockAll,
-      flashCharSelectT
+      flashCharSelectT,
+      caughtLoader
     );
 
     if (lobbyOpen) {

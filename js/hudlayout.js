@@ -7,6 +7,21 @@ export const HUD = {
   charButton: { x: 120, y: 470, w: 300, h: 56 }
 };
 
+export const CAUGHT = {
+  art: { x: 94, y: 112, w: 352, h: 264 },
+  card: { x: 40, y: 362, w: 460, h: 560 },
+  menuBtn: { x: 60, y: 748, w: 150, h: 76 },
+  restartBtn: { x: 222, y: 748, w: 258, h: 76 }
+};
+
+export function caughtTapAction(x, y) {
+  const btn = CAUGHT.menuBtn;
+  if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+    return 'menu';
+  }
+  return 'restart';
+}
+
 export function fitFontSize(text, maxW, startSize, minSize, measure) {
   let size = startSize;
   while (size > minSize && measure(text, size) > maxW) {
