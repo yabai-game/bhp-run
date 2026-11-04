@@ -484,7 +484,7 @@ export function createRenderer(canvas) {
 
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 52px system-ui, sans-serif';
-      ctx.fillText('BoyPhoRun', 270, 360);
+      ctx.fillText('BHP Run', 270, 360);
 
       ctx.fillStyle = '#fbbf24';
       ctx.font = 'bold 24px system-ui, sans-serif';

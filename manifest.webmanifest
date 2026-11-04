@@ -1,6 +1,6 @@
 {
-  "name": "BoyPhoRun — Tèo trốn vé",
-  "short_name": "BoyPhoRun",
+  "name": "BHP Run — Tèo trốn vé",
+  "short_name": "BHP Run",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
