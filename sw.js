@@ -1,4 +1,4 @@
-const APP_VERSION = 'g05';
+const APP_VERSION = 'g07';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
@@ -16,6 +16,7 @@ const ASSETS = [
   './js/config.js',
   './js/game.js',
   './js/gesture.js',
+  './js/hudlayout.js',
   './js/input.js',
   './js/loop.js',
   './js/main.js',
@@ -27,6 +28,9 @@ const ASSETS = [
   './js/rng.js',
   './js/spawner.js',
   './js/track.js',
+  './js/ui.js',
+  './assets/fonts/baloo2-latin.woff2',
+  './assets/fonts/baloo2-vietnamese.woff2',
   './assets/sprites/teo.webp',
   './assets/sprites/teo.json',
   './assets/sprites/police.webp',

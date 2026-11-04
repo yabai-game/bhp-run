@@ -38,6 +38,8 @@ export const RESTART_LOCK = 0.6;
 
 export const DT = 1 / 120;
 
+export const UI_FONT = '"Baloo 2", system-ui, sans-serif';
+
 export const SWIPE_MIN_PX = 24;
 export const TAP_MAX_PX = 10;
 export const TAP_MAX_MS = 300;

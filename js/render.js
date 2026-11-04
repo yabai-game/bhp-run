@@ -3,7 +3,8 @@ import {
   VIEW_H,
   DRAW_DIST,
   PROP_PX_PER_M,
-  ITEM_TYPES
+  ITEM_TYPES,
+  UI_FONT
 } from './config.js';
 import { project, laneX } from './track.js';
 import {
@@ -29,11 +30,22 @@ import {
   isTokenReady,
   isBillboardReady
 } from './brandart.js';
+import { HUD, fitFontSize, formatScore, meterColor } from './hudlayout.js';
+import {
+  outlinedText,
+  pill,
+  button3d,
+  card,
+  ribbon,
+  crown,
+  arrowIcon
+} from './ui.js';
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
   const props = createProps();
   const bg = createBackground();
+  let animTime = 0;
 
   // Danh sách phần tử vẽ tái sử dụng trong vòng lặp chính
   const renderList = [];
@@ -106,7 +118,9 @@ export function createRenderer(canvas) {
     bg.setBrandLogo(img);
   }
 
-  function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60, brandLogo = null) {
+  function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60, brandLogo = null, isNewBest = false) {
+    const delta = typeof dt === 'number' && dt > 0 ? dt : 1 / 60;
+    animTime += delta;
     const activeLogo = brandLogo || defaultBrandLogo;
     // Kích hoạt làm mịn ảnh chất lượng cao
     ctx.imageSmoothingEnabled = true;
@@ -138,6 +152,7 @@ export function createRenderer(canvas) {
       typeof window !== 'undefined' &&
       window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reducedMotion = Boolean(prefersReducedMotion);
 
     const isShaking = shakeT > 0 && !prefersReducedMotion;
     if (isShaking) {
@@ -406,7 +421,7 @@ export function createRenderer(canvas) {
           ctx.strokeRect(left, top, w, h);
 
           ctx.fillStyle = '#ffffff';
-          ctx.font = `bold ${Math.max(16, scale * 0.35)}px system-ui, sans-serif`;
+          ctx.font = `700 ${Math.max(16, Math.round(scale * 0.35))}px ${UI_FONT}`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('TÈO', pBot.sx, top + h / 2);
@@ -452,7 +467,7 @@ export function createRenderer(canvas) {
           ctx.strokeRect(left, top, w, h);
 
           ctx.fillStyle = '#ffffff';
-          ctx.font = `bold ${Math.max(16, scale * 0.3)}px system-ui, sans-serif`;
+          ctx.font = `700 ${Math.max(16, Math.round(scale * 0.3))}px ${UI_FONT}`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('CẢNH SÁT', pBot.sx, top + h / 2);
@@ -467,167 +482,244 @@ export function createRenderer(canvas) {
     bg.renderFarFog(ctx);
 
     // Điểm bay (+N)
-    ctx.save();
-    ctx.font = 'bold 26px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     for (let i = 0; i < floatScoresPool.length; i++) {
       const f = floatScoresPool[i];
       if (f.active) {
         const progress = f.t / 0.6;
-        const alpha = Math.max(0, 1 - progress);
         const curY = f.y - progress * 60;
-        ctx.fillStyle = `${f.colorPrefix} ${alpha.toFixed(2)})`;
-        ctx.fillText(f.text, f.x, curY);
+        const isYabai = f.text.includes('YABAI');
+        const color = isYabai ? '#fbbf24' : '#fde047';
+        const size = isYabai ? 32 : 30;
+        outlinedText(ctx, f.text, f.x, curY, size, 800, color);
       }
     }
-    ctx.restore();
 
     if (isShaking) {
       ctx.restore();
     }
 
-    // 5. HUD (y < 140, font chữ chuẩn điện thoại)
-    ctx.fillStyle = 'rgba(11, 21, 48, 0.75)';
-    ctx.fillRect(0, 0, VIEW_W, 135);
+    // 5. HUD khi chạy (running)
+    if (state.phase === 'running') {
+      // 1. Quãng đường (distance pill)
+      pill(ctx, HUD.distance.x, HUD.distance.y, HUD.distance.w, HUD.distance.h, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+      const distStr = `${Math.floor(state.distance)} m`;
+      const distSize = fitFontSize(distStr, HUD.distance.w - 24, 28, 16, (t, s) => {
+        ctx.font = `800 ${s}px ${UI_FONT}`;
+        return ctx.measureText(t).width;
+      });
+      outlinedText(ctx, distStr, HUD.distance.x + HUD.distance.w / 2, HUD.distance.y + HUD.distance.h / 2, distSize, 800, '#ffffff');
 
-    // Điểm số trung tâm (44px)
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 44px system-ui, sans-serif';
-    ctx.fillText(String(state.score), 270, 10);
+      // 2. Điểm số (score)
+      const scoreStr = formatScore(state.score);
+      const scoreSize = fitFontSize(scoreStr, HUD.score.w, 48, 28, (t, s) => {
+        ctx.font = `800 ${s}px ${UI_FONT}`;
+        return ctx.measureText(t).width;
+      });
+      outlinedText(ctx, scoreStr, HUD.score.x + HUD.score.w / 2, HUD.score.y + HUD.score.h / 2, scoreSize, 800, '#ffffff');
 
-    // Mét và Kỷ lục (28px)
-    ctx.font = 'bold 28px system-ui, sans-serif';
-    ctx.fillStyle = '#cbd5e1';
-    ctx.textAlign = 'left';
-    ctx.fillText(`${Math.floor(state.distance)} m`, 16, 18);
+      // 3. Kỷ lục (best pill)
+      pill(ctx, HUD.best.x, HUD.best.y, HUD.best.w, HUD.best.h, 'rgba(11, 21, 48, 0.88)', '#94a3b8', 3);
+      crown(ctx, HUD.best.x + 22, HUD.best.y + HUD.best.h / 2, 20, '#fbbf24');
+      const bestStr = formatScore(bestScore);
+      const bestSize = fitFontSize(bestStr, HUD.best.w - 42, 26, 14, (t, s) => {
+        ctx.font = `800 ${s}px ${UI_FONT}`;
+        return ctx.measureText(t).width;
+      });
+      outlinedText(ctx, bestStr, HUD.best.x + 30 + (HUD.best.w - 30) / 2, HUD.best.y + HUD.best.h / 2, bestSize, 800, '#fbbf24');
 
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillText(`KỶ LỤC: ${bestScore}`, VIEW_W - 16, 18);
+      // 4. Thanh cảnh sát (Police Meter pill)
+      const isHighMeter = state.meter >= 70;
+      const altCycle = Math.floor(animTime / 0.25) % 2 === 1;
+      const meterBorder = (isHighMeter && !reducedMotion && altCycle) ? '#3b82f6' : (isHighMeter ? '#ef4444' : '#0b1530');
 
-    // Thanh Police Meter
-    const meterBarW = 360;
-    const meterBarH = 18;
-    const meterBarX = (VIEW_W - meterBarW) / 2;
-    const meterBarY = 66;
+      pill(ctx, HUD.meter.x, HUD.meter.y, HUD.meter.w, HUD.meter.h, 'rgba(11, 21, 48, 0.88)');
 
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(meterBarX, meterBarY, meterBarW, meterBarH);
+      ctx.save();
+      const mr = HUD.meter.h / 2;
+      ctx.beginPath();
+      ctx.moveTo(HUD.meter.x + mr, HUD.meter.y);
+      ctx.lineTo(HUD.meter.x + HUD.meter.w - mr, HUD.meter.y);
+      ctx.arc(HUD.meter.x + HUD.meter.w - mr, HUD.meter.y + mr, mr, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(HUD.meter.x + mr, HUD.meter.y + HUD.meter.h);
+      ctx.arc(HUD.meter.x + mr, HUD.meter.y + mr, mr, Math.PI / 2, -Math.PI / 2);
+      ctx.closePath();
+      ctx.clip();
 
-    const fillRatio = Math.min(1, Math.max(0, state.meter / 100));
-    let meterColor = '#3b82f6';
-    if (fillRatio > 0.7) {
-      meterColor = '#ef4444';
-    } else if (fillRatio > 0.4) {
-      meterColor = '#f59e0b';
-    }
+      const fillRatio = Math.min(1, Math.max(0, state.meter / 100));
+      ctx.fillStyle = meterColor(state.meter);
+      ctx.fillRect(HUD.meter.x, HUD.meter.y, HUD.meter.w * fillRatio, HUD.meter.h);
+      ctx.restore();
 
-    ctx.fillStyle = meterColor;
-    ctx.fillRect(meterBarX, meterBarY, meterBarW * fillRatio, meterBarH);
+      pill(ctx, HUD.meter.x, HUD.meter.y, HUD.meter.w, HUD.meter.h, null, meterBorder, 3);
 
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(meterBarX, meterBarY, meterBarW, meterBarH);
+      ctx.beginPath();
+      ctx.arc(36, HUD.meter.y + HUD.meter.h / 2, 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#ef4444';
+      ctx.fill();
+      ctx.strokeStyle = '#0b1530';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
 
-    // Nhãn cảnh sát (22px)
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 22px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`CẢNH SÁT: ${Math.round(state.meter)}%`, 270, 92);
+      ctx.beginPath();
+      ctx.arc(54, HUD.meter.y + HUD.meter.h / 2, 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fill();
+      ctx.strokeStyle = '#0b1530';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
 
-    // Hiển thị FPS khi ở chế độ debug (?debug=1)
-    if (fps !== null && fps !== undefined) {
-      ctx.fillStyle = '#22c55e';
-      ctx.font = 'bold 16px monospace';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(`${fps} FPS`, 16, 100);
+      outlinedText(ctx, `CẢNH SÁT ${Math.round(state.meter)}%`, HUD.meter.x + HUD.meter.w / 2, HUD.meter.y + HUD.meter.h / 2, 20, 800, '#ffffff');
+
+      if (fps !== null && fps !== undefined) {
+        outlinedText(ctx, `${fps} FPS`, 20, 130, 16, 700, '#22c55e', { align: 'left' });
+      }
     }
 
     // 6. Màn Ready / Game Over
     if (state.phase === 'ready') {
-      ctx.fillStyle = 'rgba(11, 21, 48, 0.85)';
-      ctx.fillRect(0, 140, VIEW_W, VIEW_H - 140);
+      ctx.fillStyle = 'rgba(8, 12, 34, 0.45)';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      const bobY = reducedMotion ? 0 : 4 * Math.sin(animTime * 2);
+      outlinedText(ctx, 'BHP Run', 270, 300 + bobY, 104, 800, '#fde047', {
+        stroke: '#0b1530',
+        strokeW: 14,
+        shadow: '#db2777',
+        shadowDy: 8
+      });
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 52px system-ui, sans-serif';
-      ctx.fillText('BHP Run', 270, 360);
-
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = 'bold 24px system-ui, sans-serif';
-      ctx.fillText('Tèo trốn vé tàu — chạy đi!', 270, 430);
-
-      if (loading) {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 32px system-ui, sans-serif';
-        ctx.fillText('Đang tải…', 270, 520);
+      const subText = 'Tèo làm BHP — cảnh sát đang đuổi, chạy đi!';
+      ctx.font = `700 22px ${UI_FONT}`;
+      const subMeasure = ctx.measureText(subText).width;
+      if (subMeasure <= 440) {
+        const subW = Math.min(480, subMeasure + 40);
+        const subH = 44;
+        pill(ctx, 270 - subW / 2, 384 - subH / 2, subW, subH, 'rgba(11, 21, 48, 0.88)', '#f472b6', 3);
+        outlinedText(ctx, subText, 270, 384, 22, 700, '#ffffff');
       } else {
-        ctx.fillStyle = '#22c55e';
-        ctx.font = 'bold 32px system-ui, sans-serif';
-        ctx.fillText('Chạm để chạy', 270, 520);
+        const subLines = wrapText(subText, 440, str => ctx.measureText(str).width);
+        const subH = subLines.length * 30 + 14;
+        const maxLineW = Math.max(...subLines.map(l => ctx.measureText(l).width));
+        const subW = Math.min(480, maxLineW + 40);
+        pill(ctx, 270 - subW / 2, 384 - subH / 2, subW, subH, 'rgba(11, 21, 48, 0.88)', '#f472b6', 3);
+        for (let i = 0; i < subLines.length; i++) {
+          const lineY = 384 - ((subLines.length - 1) * 30) / 2 + i * 30;
+          outlinedText(ctx, subLines[i], 270, lineY, 22, 700, '#ffffff');
+        }
       }
 
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '18px system-ui, sans-serif';
-      ctx.fillText('Vuốt ← → đổi làn · ↑ nhảy · ↓ trượt', 270, 600);
+      const bestStr = `KỶ LỤC ${formatScore(bestScore)}`;
+      ctx.font = `800 22px ${UI_FONT}`;
+      const recBadgeW = ctx.measureText(bestStr).width + 56;
+      const recBadgeH = 44;
+      pill(ctx, 270 - recBadgeW / 2, 470 - recBadgeH / 2, recBadgeW, recBadgeH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+      crown(ctx, 270 - recBadgeW / 2 + 22, 470, 20, '#fbbf24');
+      outlinedText(ctx, bestStr, 270 + 12, 470, 22, 800, '#fbbf24');
 
+      const btnScale = reducedMotion ? 1 : (1 + 0.04 * Math.sin(animTime * 4));
+      const btnLabel = loading ? 'ĐANG TẢI…' : 'CHẠM ĐỂ CHẠY';
+      button3d(ctx, 270, 560, 380, 84, btnLabel, 36, btnScale, !loading);
+
+      const chipY = 660;
+      const chipR = 26;
+      const chips = [
+        { x: 170, kind: 'lr', label: 'Đổi làn' },
+        { x: 270, kind: 'up', label: 'Nhảy' },
+        { x: 370, kind: 'down', label: 'Trượt' }
+      ];
+      for (const chip of chips) {
+        pill(ctx, chip.x - chipR, chipY - chipR, chipR * 2, chipR * 2, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
+        arrowIcon(ctx, chip.x, chipY, 15, chip.kind);
+        outlinedText(ctx, chip.label, chip.x, 712, 18, 700, '#cbd5e1');
+      }
+
+      outlinedText(ctx, 'Một game của', 270, 770, 18, 700, '#94a3b8');
       if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 18px system-ui, sans-serif';
-        ctx.fillText('Một game của', 270, 690);
-
-        const logoW = 240;
+        const logoW = 220;
         const logoH = logoW * (213 / 845);
         const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 706;
+        const logoY = 788;
         ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
       }
-    } else if (state.phase === 'caught') {
-      ctx.fillStyle = 'rgba(11, 21, 48, 0.88)';
-      ctx.fillRect(0, 140, VIEW_W, VIEW_H - 140);
 
+      if (fps !== null && fps !== undefined) {
+        outlinedText(ctx, `${fps} FPS`, 20, 130, 16, 700, '#22c55e', { align: 'left' });
+      }
+    } else if (state.phase === 'caught') {
+      ctx.fillStyle = 'rgba(8, 12, 34, 0.62)';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+      card(ctx, 40, 200, 460, 580, '#ef4444');
+      ribbon(ctx, 270, 200, 'BỊ TÓM!', 44, '#ef4444', '#ffffff');
+
+      const reasonText = state.caughtReason === 'meter' ? 'Cảnh sát bắt kịp rồi.' : 'Vấp hai lần liên tiếp.';
+      outlinedText(ctx, reasonText, 270, 268, 24, 700, '#fca5a5');
+
+      const quipText = quipFor(state.seed);
+      ctx.font = `600 24px ${UI_FONT}`;
+      const quipLines = wrapText(quipText, 360, str => ctx.measureText(str).width);
+      const quipBoxH = quipLines.length <= 1 ? 64 : 96;
+
+      ctx.beginPath();
+      const qx = 72;
+      const qy = 296;
+      const qw = 396;
+      const qh = quipBoxH;
+      const qr = 18;
+      ctx.moveTo(qx + qr, qy);
+      ctx.lineTo(qx + qw - qr, qy);
+      ctx.arcTo(qx + qw, qy, qx + qw, qy + qr, qr);
+      ctx.lineTo(qx + qw, qy + qh - qr);
+      ctx.arcTo(qx + qw, qy + qh, qx + qw - qr, qy + qh, qr);
+      ctx.lineTo(qx + qr, qy + qh);
+      ctx.arcTo(qx, qy + qh, qx, qy + qh - qr, qr);
+      ctx.lineTo(qx, qy + qr);
+      ctx.arcTo(qx, qy, qx + qr, qy, qr);
+      ctx.closePath();
+      ctx.fillStyle = '#1e2a52';
+      ctx.fill();
+
+      ctx.fillStyle = '#e2e8f0';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-
-      ctx.fillStyle = '#ef4444';
-      ctx.font = 'bold 52px system-ui, sans-serif';
-      ctx.fillText('BỊ TÓM!', 270, 310);
-
-      const reasonText =
-        state.caughtReason === 'meter'
-          ? 'Cảnh sát bắt kịp rồi.'
-          : 'Vấp hai lần liên tiếp.';
-      ctx.fillStyle = '#fca5a5';
-      ctx.font = 'bold 24px system-ui, sans-serif';
-      ctx.fillText(reasonText, 270, 365);
-
-      // Câu châm biếm
-      const quipText = quipFor(state.seed);
-      ctx.font = '22px system-ui, sans-serif';
-      ctx.fillStyle = '#e2e8f0';
-      const quipLines = wrapText(quipText, 460, str => ctx.measureText(str).width);
-      for (let i = 0; i < quipLines.length; i++) {
-        ctx.fillText(quipLines[i], 270, 415 + i * 28);
+      if (quipLines.length === 1) {
+        ctx.fillText(quipLines[0], 270, qy + qh / 2);
+      } else {
+        ctx.fillText(quipLines[0], 270, qy + 16 + 16);
+        ctx.fillText(quipLines[1], 270, qy + 16 + 16 + 32);
       }
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 32px system-ui, sans-serif';
-      ctx.fillText(`Điểm: ${state.score}`, 270, 495);
+      outlinedText(ctx, 'ĐIỂM', 270, 430, 20, 700, '#94a3b8');
+      const scoreStr = formatScore(state.score);
+      const scoreSize = fitFontSize(scoreStr, 380, 72, 44, (t, s) => {
+        ctx.font = `800 ${s}px ${UI_FONT}`;
+        return ctx.measureText(t).width;
+      });
+      outlinedText(ctx, scoreStr, 270, 488, scoreSize, 800, '#ffffff');
 
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = 'bold 26px system-ui, sans-serif';
-      ctx.fillText(`Kỷ lục: ${bestScore}`, 270, 545);
+      if (isNewBest) {
+        const newBestStr = 'KỶ LỤC MỚI!';
+        ctx.font = `800 20px ${UI_FONT}`;
+        const nbW = ctx.measureText(newBestStr).width + 48;
+        const nbH = 40;
+        pill(ctx, 270 - nbW / 2, 548 - nbH / 2, nbW, nbH, '#fbbf24', '#0b1530', 3);
+        ctx.font = `800 20px ${UI_FONT}`;
+        ctx.fillStyle = '#3b2603';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(newBestStr, 270, 548);
+      } else {
+        const bestStr = `Kỷ lục: ${formatScore(bestScore)}`;
+        ctx.font = `700 22px ${UI_FONT}`;
+        const bW = ctx.measureText(bestStr).width + 56;
+        const bH = 40;
+        pill(ctx, 270 - bW / 2, 548 - bH / 2, bW, bH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+        crown(ctx, 270 - bW / 2 + 22, 548, 18, '#fbbf24');
+        outlinedText(ctx, bestStr, 270 + 12, 548, 22, 700, '#fbbf24');
+      }
 
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 28px system-ui, sans-serif';
-      ctx.fillText('Chạm để chạy lại', 270, 625);
+      const restartEnabled = state.restartLockT <= 0;
+      button3d(ctx, 270, 640, 380, 80, 'CHẠY LẠI', 34, 1, restartEnabled);
 
       if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
         const prevAlpha = ctx.globalAlpha;
@@ -635,9 +727,13 @@ export function createRenderer(canvas) {
         const logoW = 150;
         const logoH = logoW * (213 / 845);
         const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 690;
+        const logoY = 708;
         ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
         ctx.globalAlpha = prevAlpha;
+      }
+
+      if (fps !== null && fps !== undefined) {
+        outlinedText(ctx, `${fps} FPS`, 20, 130, 16, 700, '#22c55e', { align: 'left' });
       }
     }
 

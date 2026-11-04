@@ -5,6 +5,7 @@ import { createRenderer } from './render.js';
 import { createAccState, advance } from './loop.js';
 import { loadSprites } from './assets.js';
 import { initAudio, playEvent, startBgm, stopBgm, suspendAudio, resumeAudio } from './audio.js';
+import { HUD } from './hudlayout.js';
 
 // Đăng ký Service Worker chỉ khi trong Secure Context (HTTPS hoặc localhost)
 if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -41,9 +42,22 @@ function init() {
 
   let savedBestScore = loadBestScore();
   let bestScore = savedBestScore;
+  let bestScoreBeforeRun = bestScore;
+  let isNewBest = false;
   let seed = Date.now() >>> 0;
 
-  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand, __bprDisclaimer vào globalThis nếu có ?debug=1 để kiểm thử
+  // Tải phông chữ Baloo 2 không chặn game
+  let fontReady = false;
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.load) {
+    Promise.all([
+      document.fonts.load('800 32px "Baloo 2"'),
+      document.fonts.load('800 32px "Baloo 2"', 'Tèo đã hiểu ạ')
+    ]).then(() => {
+      fontReady = true;
+    }).catch(() => {});
+  }
+
+  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand, __bprDisclaimer, __bprUi vào globalThis nếu có ?debug=1 để kiểm thử
   const urlParams = new URLSearchParams(window.location.search);
   const isDebug = urlParams.get('debug') === '1';
   const isNoDisclaimer = urlParams.get('nodisclaimer') === '1';
@@ -54,13 +68,38 @@ function init() {
 
   const disclaimerEl = document.getElementById('disclaimer');
   const disclaimerOkBtn = document.getElementById('disclaimer-ok');
+  const muteBtn = document.getElementById('mute');
   let disclaimerOpen = true;
   let justDismissedDisclaimer = false;
+
+  function updateMuteVisibility() {
+    if (!muteBtn) return;
+    if (disclaimerOpen) {
+      muteBtn.classList.add('hidden');
+    } else {
+      muteBtn.classList.remove('hidden');
+    }
+  }
+
+  function updateMutePos() {
+    if (!muteBtn || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cssW = parseFloat(canvas.style.width) || rect.width;
+    const k = cssW / 540;
+    const btnLeft = rect.left + HUD.mute.x * k;
+    const btnTop = rect.top + HUD.mute.y * k;
+    const btnSize = Math.max(44, HUD.mute.w * k);
+    muteBtn.style.left = `${btnLeft}px`;
+    muteBtn.style.top = `${btnTop}px`;
+    muteBtn.style.width = `${btnSize}px`;
+    muteBtn.style.height = `${btnSize}px`;
+  }
 
   if (isNoDisclaimer && disclaimerEl) {
     disclaimerEl.classList.add('hidden');
     disclaimerOpen = false;
   }
+  updateMuteVisibility();
 
   if (disclaimerOkBtn && disclaimerOpen) {
     disclaimerOkBtn.focus();
@@ -90,6 +129,15 @@ function init() {
         return disclaimerOpen;
       }
     };
+    globalThis.__bprUi = {
+      get fontReady() {
+        if (fontReady) return true;
+        if (typeof document !== 'undefined' && document.fonts && document.fonts.check) {
+          return document.fonts.check('800 32px "Baloo 2"');
+        }
+        return false;
+      }
+    };
   }
 
   initAudio();
@@ -104,6 +152,8 @@ function init() {
         disclaimerEl.classList.add('hidden');
       }
       disclaimerOpen = false;
+      updateMuteVisibility();
+      updateMutePos();
       justDismissedDisclaimer = true;
       input.pollActions();
       resumeAudio();
@@ -186,6 +236,8 @@ function init() {
     canvas.height = backingH;
     canvas.style.width = `${Math.round(cssW)}px`;
     canvas.style.height = `${Math.round(cssH)}px`;
+
+    updateMutePos();
   }
 
   window.addEventListener('resize', fit);
@@ -224,6 +276,14 @@ function init() {
   };
 
   const stepFn = (dt, currentActions) => {
+    if (game.phase === 'ready' && currentActions.includes('start')) {
+      bestScoreBeforeRun = bestScore;
+      isNewBest = false;
+    } else if (game.phase === 'caught' && game.restartLockT <= 0 && currentActions.includes('start')) {
+      bestScoreBeforeRun = bestScore;
+      isNewBest = false;
+    }
+
     const nextSeed = Date.now() >>> 0;
     step(game, dt, currentActions, { seed: nextSeed, ...gameOpts });
 
@@ -234,16 +294,16 @@ function init() {
       renderer.onEvent(ev);
     }
 
-    if (game.score > bestScore) {
-      bestScore = game.score;
-    }
-
-    // Chỉ ghi localStorage 1 lần khi chuyển sang caught và phá kỷ lục
     if (game.events.some(e => e.type === 'caught')) {
+      isNewBest = game.score > bestScoreBeforeRun;
       if (game.score > savedBestScore) {
         savedBestScore = game.score;
         saveBestScore(savedBestScore);
       }
+    }
+
+    if (game.score > bestScore) {
+      bestScore = game.score;
     }
   };
 
@@ -279,7 +339,7 @@ function init() {
     // Render với biến đổi scale phù hợp với canvas backing store
     const k = canvas.width / VIEW_W;
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    renderer.render(game, bestScore, sprites, isDebug ? displayFps : null, loading, frameTime, brandLogo);
+    renderer.render(game, bestScore, sprites, isDebug ? displayFps : null, loading, frameTime, brandLogo, isNewBest);
 
     if (isDebug) {
       globalThis.__bprFps = displayFps;

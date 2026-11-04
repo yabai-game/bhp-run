@@ -277,7 +277,7 @@ export function initAudio() {
 
   const muteBtn = typeof document !== 'undefined' ? document.getElementById('mute') : null;
   if (muteBtn) {
-    muteBtn.textContent = isMuted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', isMuted);
 
     const stopEv = (e) => {
       e.stopPropagation();
@@ -319,7 +319,7 @@ export function toggleMute() {
 
   const muteBtn = typeof document !== 'undefined' ? document.getElementById('mute') : null;
   if (muteBtn) {
-    muteBtn.textContent = isMuted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('muted', isMuted);
   }
 
   return isMuted;
