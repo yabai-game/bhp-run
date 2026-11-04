@@ -121,8 +121,8 @@ export const YABAI_TOKEN_M = 0.6;
 
 export const GRACE_M = 100;
 // Gợi ý điều khiển hiện đầu mỗi ván (giây), mờ dần trong HINT_FADE giây cuối
-export const HINT_TIME = 3.5;
-export const HINT_FADE = 0.8;
+export const HINT_TIME = 2;
+export const HINT_FADE = 0.5;
 export const QUIP_MAX_W = 460;
 export const FLOAT_SCORE_TIME = 0.6;
 export const FLOAT_SCORE_RISE = 60;
