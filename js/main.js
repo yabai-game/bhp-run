@@ -42,11 +42,15 @@ function init() {
   let savedBestScore = loadBestScore();
   let bestScore = savedBestScore;
   let seed = Date.now() >>> 0;
-  let game = createGame(seed, 'ready');
 
-  // Gắn __bpr, __bprAnim, __bprSfx vào globalThis nếu có ?debug=1 để kiểm thử
+  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand vào globalThis nếu có ?debug=1 để kiểm thử
   const urlParams = new URLSearchParams(window.location.search);
   const isDebug = urlParams.get('debug') === '1';
+  const isYabaiDebug = isDebug && urlParams.get('yabai') === '1';
+  const gameOpts = isYabaiDebug ? { forceItem: 'YABAI' } : {};
+
+  let game = createGame(seed, 'ready', gameOpts);
+
   if (isDebug) {
     globalThis.__bpr = game;
     globalThis.__bprProps = 'fallback';
@@ -61,6 +65,11 @@ function init() {
       teo: { name: 'run', frame: 0 },
       police: { name: 'run', frame: 0 }
     };
+    globalThis.__bprBrand = {
+      boards: 0,
+      tokenReady: false,
+      skyline: false
+    };
   }
 
   initAudio();
@@ -73,9 +82,11 @@ function init() {
   const brandImg = new Image();
   brandImg.onload = () => {
     brandLogo = brandImg;
+    renderer.setBrandLogo(brandImg);
   };
   brandImg.onerror = () => {
     brandLogo = null;
+    renderer.setBrandLogo(null);
   };
   brandImg.src = 'assets/brand/yabai_logo_white.png';
 
@@ -174,7 +185,7 @@ function init() {
 
   const stepFn = (dt, currentActions) => {
     const nextSeed = Date.now() >>> 0;
-    step(game, dt, currentActions, { seed: nextSeed });
+    step(game, dt, currentActions, { seed: nextSeed, ...gameOpts });
 
     // Phát âm thanh và thông báo hiệu ứng hình ảnh cho từng sự kiện
     for (let i = 0; i < game.events.length; i++) {
@@ -230,12 +241,19 @@ function init() {
     ctx.setTransform(k, 0, 0, k, 0, 0);
     renderer.render(game, bestScore, sprites, isDebug ? displayFps : null, loading, frameTime, brandLogo);
 
-    if (isDebug && renderer.lastAnim) {
+    if (isDebug) {
       globalThis.__bprFps = displayFps;
       globalThis.__bprProps = (sprites && sprites.props) ? 'sprite' : 'fallback';
-      globalThis.__bprAnim = {
-        teo: { name: renderer.lastAnim.teo.name, frame: renderer.lastAnim.teo.frame },
-        police: { name: renderer.lastAnim.police.name, frame: renderer.lastAnim.police.frame }
+      if (renderer.lastAnim) {
+        globalThis.__bprAnim = {
+          teo: { name: renderer.lastAnim.teo.name, frame: renderer.lastAnim.teo.frame },
+          police: { name: renderer.lastAnim.police.name, frame: renderer.lastAnim.police.frame }
+        };
+      }
+      globalThis.__bprBrand = {
+        boards: renderer.drawnBoardsCount,
+        tokenReady: renderer.isTokenReady,
+        skyline: renderer.hasSkylineSign
       };
     }
 

@@ -3,6 +3,9 @@ import {
   BGM_VOL,
   MUSIC_FILE_VOL,
   SIREN_VOL,
+  PROCEDURAL_VOL,
+  SFX_PEAK,
+  SFX_NOTES,
   MUSIC_LP_NORMAL,
   MUSIC_LP_TENSE,
   MUSIC_LP_TRANSITION,
@@ -19,6 +22,9 @@ let audioCtx = null;
 let masterGain = null;
 let sfxGain = null;
 let bgmGain = null;
+let limiterNode = null;
+let analyserNode = null;
+let meterIntervalId = null;
 let isMuted = false;
 let unlocked = false;
 let noiseBuffer = null;
@@ -74,6 +80,59 @@ function updateDebugMusic() {
   }
 }
 
+function setupDebugAudioMeter() {
+  if (!audioCtx || !limiterNode) return;
+  analyserNode = audioCtx.createAnalyser();
+  analyserNode.fftSize = 2048;
+  limiterNode.connect(analyserNode);
+
+  globalThis.__bprAudioMeter = {
+    peakDb: -Infinity,
+    rmsDb: -Infinity
+  };
+
+  globalThis.__bprPlaySfx = (type, item) => {
+    playEvent({ type, item });
+  };
+
+  globalThis.__bprResetMeter = () => {
+    snapshots.length = 0;
+    globalThis.__bprAudioMeter.peakDb = -Infinity;
+    globalThis.__bprAudioMeter.rmsDb = -Infinity;
+  };
+
+  const buffer = new Float32Array(analyserNode.fftSize);
+  const snapshots = [];
+
+  if (meterIntervalId) clearInterval(meterIntervalId);
+  meterIntervalId = setInterval(() => {
+    if (!analyserNode) return;
+    analyserNode.getFloatTimeDomainData(buffer);
+    let peak = 0;
+    let sumSq = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      const v = Math.abs(buffer[i]);
+      if (v > peak) peak = v;
+      sumSq += v * v;
+    }
+    snapshots.push({ peak, sumSq, count: buffer.length });
+    if (snapshots.length > 15) snapshots.shift();
+
+    let maxP = 0;
+    let totalSq = 0;
+    let totalC = 0;
+    for (let i = 0; i < snapshots.length; i++) {
+      if (snapshots[i].peak > maxP) maxP = snapshots[i].peak;
+      totalSq += snapshots[i].sumSq;
+      totalC += snapshots[i].count;
+    }
+    const rms = totalC > 0 ? Math.sqrt(totalSq / totalC) : 0;
+
+    globalThis.__bprAudioMeter.peakDb = maxP > 1e-5 ? Number((20 * Math.log10(maxP)).toFixed(1)) : -Infinity;
+    globalThis.__bprAudioMeter.rmsDb = rms > 1e-5 ? Number((20 * Math.log10(rms)).toFixed(1)) : -Infinity;
+  }, 100);
+}
+
 function getAudioContext() {
   if (!audioCtx && typeof window !== 'undefined') {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -89,9 +148,24 @@ function getAudioContext() {
 
       sfxGain.connect(masterGain);
       bgmGain.connect(masterGain);
-      masterGain.connect(audioCtx.destination);
+
+      // Limiter an toàn: masterGain → DynamicsCompressor (threshold −3 dB, knee 0, ratio 20, attack 0.002, release 0.1) → destination
+      limiterNode = audioCtx.createDynamicsCompressor();
+      limiterNode.threshold.setValueAtTime(-3, audioCtx.currentTime);
+      limiterNode.knee.setValueAtTime(0, audioCtx.currentTime);
+      limiterNode.ratio.setValueAtTime(20, audioCtx.currentTime);
+      limiterNode.attack.setValueAtTime(0.002, audioCtx.currentTime);
+      limiterNode.release.setValueAtTime(0.1, audioCtx.currentTime);
+
+      masterGain.connect(limiterNode);
+      limiterNode.connect(audioCtx.destination);
 
       masterGain.gain.setValueAtTime(isMuted ? 0 : 1, audioCtx.currentTime);
+
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('debug') === '1') {
+        setupDebugAudioMeter();
+      }
     }
   }
   return audioCtx;
@@ -319,7 +393,7 @@ function startProceduralMusic() {
   stopProceduralMusic();
 
   proceduralGain = ctx.createGain();
-  proceduralGain.gain.setValueAtTime(1.0, ctx.currentTime);
+  proceduralGain.gain.setValueAtTime(PROCEDURAL_VOL, ctx.currentTime);
   proceduralGain.connect(bgmGain);
 
   musicSource = 'procedural';
@@ -543,6 +617,10 @@ export function startBgm(meter = 0) {
   const ctx = getAudioContext();
   if (!ctx) return;
 
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+
   if (isBgmActive) {
     return;
   }
@@ -600,28 +678,78 @@ export function playEvent(ev) {
   }
 
   const ctx = getAudioContext();
-  if (!ctx || ctx.state !== 'running' || !sfxGain) return;
+  if (!ctx || !sfxGain) return;
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
 
   const now = ctx.currentTime;
 
-  if (ev.type === 'jump') {
-    // Sóng vuông quét 300 → 700 Hz trong 0.12 s, tắt dần
+  if (ev.type === 'lane') {
+    // Không cao độ — nhiễu trắng → bandpass 2500 Hz Q 1.2; gain lên đỉnh lane trong 0,005 s rồi exponential về 0,001 lúc 0,06 s
+    const buffer = getNoiseBuffer(ctx);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(2500, now);
+    filter.Q.setValueAtTime(1.2, now);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(SFX_PEAK.lane, now + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(sfxGain);
+
+    src.start(now);
+    src.stop(now + 0.06);
+  } else if (ev.type === 'jump') {
+    // Triangle trượt Gs4 → Ds5 trong 0,10 s (exponential), qua lowpass 3000 Hz, đỉnh jump, tắt lúc 0,14 s
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(300, now);
-    osc.frequency.exponentialRampToValueAtTime(700, now + 0.12);
+    const filter = ctx.createBiquadFilter();
 
-    g.gain.setValueAtTime(0.3, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(SFX_NOTES.Gs4, now);
+    osc.frequency.exponentialRampToValueAtTime(SFX_NOTES.Ds5, now + 0.10);
 
-    osc.connect(g);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(3000, now);
+
+    g.gain.setValueAtTime(SFX_PEAK.jump, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+
+    osc.connect(filter);
+    filter.connect(g);
     g.connect(sfxGain);
 
     osc.start(now);
-    osc.stop(now + 0.12);
+    osc.stop(now + 0.14);
+
+    // Cộng nhiễu bandpass quét 800 → 3000 Hz trong 0,12 s ở 0,5 × jump
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = getNoiseBuffer(ctx);
+    const nFilter = ctx.createBiquadFilter();
+    nFilter.type = 'bandpass';
+    nFilter.frequency.setValueAtTime(800, now);
+    nFilter.frequency.exponentialRampToValueAtTime(3000, now + 0.12);
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0.5 * SFX_PEAK.jump, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+    nSrc.connect(nFilter);
+    nFilter.connect(nGain);
+    nGain.connect(sfxGain);
+
+    nSrc.start(now);
+    nSrc.stop(now + 0.12);
   } else if (ev.type === 'slide') {
-    // Nhiễu trắng qua lowpass 1200 → 300 Hz, 0.2 s
+    // Nhiễu lowpass 1200 → 300 Hz, 0.2 s, đỉnh slide
     const buffer = getNoiseBuffer(ctx);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -632,7 +760,7 @@ export function playEvent(ev) {
     filter.frequency.exponentialRampToValueAtTime(300, now + 0.2);
 
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.5, now);
+    g.gain.setValueAtTime(SFX_PEAK.slide, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
 
     src.connect(filter);
@@ -641,46 +769,63 @@ export function playEvent(ev) {
 
     src.start(now);
     src.stop(now + 0.2);
-  } else if (ev.type === 'lane') {
-    // Tam giác 1200 Hz, 0.03 s
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(1200, now);
-
-    g.gain.setValueAtTime(0.35, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-
-    osc.connect(g);
-    g.connect(sfxGain);
-
-    osc.start(now);
-    osc.stop(now + 0.03);
   } else if (ev.type === 'pickup') {
-    let freqs = [880, 1320];
-    if (ev.item === 'ONIGIRI') freqs = [660, 990];
-    else if (ev.item === 'SUIKA') freqs = [990, 1480];
-    else if (ev.item === 'SALARY') freqs = [784, 988, 1319];
+    const isYabai = ev.item === 'YABAI';
+    let notes;
+    let stepGap = 0.06;
+    let sineMul = 0.3;
+    let peak = SFX_PEAK.pickup;
 
-    for (let i = 0; i < freqs.length; i++) {
-      const noteStart = now + i * 0.07;
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freqs[i], noteStart);
+    if (ev.item === 'TICKET') {
+      notes = [SFX_NOTES.Ds5, SFX_NOTES.Gs5];
+    } else if (ev.item === 'ONIGIRI') {
+      notes = [SFX_NOTES.B4, SFX_NOTES.Ds5];
+    } else if (ev.item === 'SUIKA') {
+      notes = [SFX_NOTES.Gs5, SFX_NOTES.B5];
+    } else if (ev.item === 'SALARY') {
+      notes = [SFX_NOTES.Gs5, SFX_NOTES.B5, SFX_NOTES.Ds6];
+    } else if (isYabai) {
+      notes = [SFX_NOTES.Gs5, SFX_NOTES.B5, SFX_NOTES.Ds6, SFX_NOTES.Gs6];
+      stepGap = 0.05;
+      sineMul = 0.25;
+      peak = SFX_PEAK.pickupYabai;
+    } else {
+      notes = [SFX_NOTES.Ds5, SFX_NOTES.Gs5];
+    }
 
-      g.gain.setValueAtTime(0.0001, noteStart);
-      g.gain.exponentialRampToValueAtTime(0.4, noteStart + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, noteStart + 0.068);
+    for (let i = 0; i < notes.length; i++) {
+      const f = notes[i];
+      const noteStart = now + i * stepGap;
+      const noteDur = (isYabai && i === notes.length - 1) ? 0.35 : 0.12;
 
-      osc.connect(g);
-      g.connect(sfxGain);
+      const tri = ctx.createOscillator();
+      tri.type = 'triangle';
+      tri.frequency.setValueAtTime(f, noteStart);
 
-      osc.start(noteStart);
-      osc.stop(noteStart + 0.07);
+      const sin = ctx.createOscillator();
+      sin.type = 'sine';
+      sin.frequency.setValueAtTime(f * 2, noteStart);
+
+      const sinGain = ctx.createGain();
+      sinGain.gain.setValueAtTime(sineMul, noteStart);
+
+      const noteGain = ctx.createGain();
+      noteGain.gain.setValueAtTime(0.0001, noteStart);
+      noteGain.gain.linearRampToValueAtTime(peak, noteStart + 0.005);
+      noteGain.gain.exponentialRampToValueAtTime(0.001, noteStart + noteDur);
+
+      tri.connect(noteGain);
+      sin.connect(sinGain);
+      sinGain.connect(noteGain);
+      noteGain.connect(sfxGain);
+
+      tri.start(noteStart);
+      tri.stop(noteStart + noteDur);
+      sin.start(noteStart);
+      sin.stop(noteStart + noteDur);
     }
   } else if (ev.type === 'hit') {
-    // Stumble choke: "hụt hơi" — musicGain về 35% trong 0,08 s, lên lại trong 0,35 s
+    // Stumble choke: "hụt hơi"
     if (musicGain && musicSource === 'file') {
       musicGain.gain.cancelScheduledValues(now);
       musicGain.gain.setValueAtTime(musicGain.gain.value, now);
@@ -689,18 +834,18 @@ export function playEvent(ev) {
     } else if (proceduralGain && musicSource === 'procedural') {
       proceduralGain.gain.cancelScheduledValues(now);
       proceduralGain.gain.setValueAtTime(proceduralGain.gain.value, now);
-      proceduralGain.gain.linearRampToValueAtTime(MUSIC_STUMBLE_VOL_MUL, now + MUSIC_STUMBLE_DROP_TIME);
-      proceduralGain.gain.linearRampToValueAtTime(1.0, now + MUSIC_STUMBLE_DROP_TIME + MUSIC_STUMBLE_RECOVER_TIME);
+      proceduralGain.gain.linearRampToValueAtTime(PROCEDURAL_VOL * MUSIC_STUMBLE_VOL_MUL, now + MUSIC_STUMBLE_DROP_TIME);
+      proceduralGain.gain.linearRampToValueAtTime(PROCEDURAL_VOL, now + MUSIC_STUMBLE_DROP_TIME + MUSIC_STUMBLE_RECOVER_TIME);
     }
 
-    // Hit SFX: Sine 110 Hz → 60 Hz 0.25 s + nhiễu ngắn 0.08 s
+    // Taiko style: sine Gs2 → Gs1 trong 0,25 s, đỉnh hit
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(110, now);
-    osc.frequency.exponentialRampToValueAtTime(60, now + 0.25);
+    osc.frequency.setValueAtTime(SFX_NOTES.Gs2, now);
+    osc.frequency.exponentialRampToValueAtTime(SFX_NOTES.Gs1, now + 0.25);
 
-    g.gain.setValueAtTime(0.5, now);
+    g.gain.setValueAtTime(SFX_PEAK.hit, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
     osc.connect(g);
@@ -709,7 +854,7 @@ export function playEvent(ev) {
     osc.start(now);
     osc.stop(now + 0.25);
 
-    // Nhiễu ngắn 0.08 s
+    // Nhiễu lowpass 800 Hz 0.08 s ở 0.6 × hit
     const buffer = getNoiseBuffer(ctx);
     const noiseSrc = ctx.createBufferSource();
     noiseSrc.buffer = buffer;
@@ -719,7 +864,7 @@ export function playEvent(ev) {
     noiseFilter.frequency.setValueAtTime(800, now);
 
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.4, now);
+    noiseGain.gain.setValueAtTime(0.6 * SFX_PEAK.hit, now);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
 
     noiseSrc.connect(noiseFilter);
@@ -729,7 +874,7 @@ export function playEvent(ev) {
     noiseSrc.start(now);
     noiseSrc.stop(now + 0.08);
   } else if (ev.type === 'caught') {
-    // Tắt dần nhạc nền: hạ musicGain về 0 trong 0,3 s rồi stop()
+    // Tắt dần nhạc nền
     if (musicGain) {
       musicGain.gain.cancelScheduledValues(now);
       musicGain.gain.setValueAtTime(musicGain.gain.value, now);
@@ -747,41 +892,47 @@ export function playEvent(ev) {
       stopAllMusicImmediately();
     }, MUSIC_CAUGHT_FADE_TIME * 1000);
 
-    // Còi cảnh sát: 2 hồi sine 2800 Hz có rung tần số (LFO 30 Hz, ±150 Hz), mỗi hồi 0.18 s cách 0.08 s; rồi 3 nốt đi xuống 523→392→262
-    const playSirenPulse = (startTime) => {
-      const carrier = ctx.createOscillator();
-      const lfo = ctx.createOscillator();
-      const lfoGain = ctx.createGain();
+    // 2 hồi hú: Ds5 rồi E5 (2 sawtooth ±6 cent, lowpass 2500 Hz), mỗi hồi 0.18 s, cách 0.08 s
+    const playCaughtPulse = (startTime, freq) => {
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
       const pulseGain = ctx.createGain();
 
-      carrier.type = 'sine';
-      carrier.frequency.setValueAtTime(2800, startTime);
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(freq, startTime);
+      osc1.detune.setValueAtTime(-6, startTime);
 
-      lfo.type = 'sine';
-      lfo.frequency.setValueAtTime(30, startTime);
+      osc2.type = 'sawtooth';
+      osc2.frequency.setValueAtTime(freq, startTime);
+      osc2.detune.setValueAtTime(6, startTime);
 
-      lfoGain.gain.setValueAtTime(150, startTime);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(2500, startTime);
 
-      lfo.connect(lfoGain);
-      lfoGain.connect(carrier.frequency);
-
-      pulseGain.gain.setValueAtTime(0.4, startTime);
+      pulseGain.gain.setValueAtTime(0.0001, startTime);
+      // Two summed sawtooths roughly double the amplitude, so each pulse uses half the peak.
+      pulseGain.gain.linearRampToValueAtTime(0.5 * SFX_PEAK.caught, startTime + 0.01);
+      pulseGain.gain.setValueAtTime(0.5 * SFX_PEAK.caught, startTime + 0.14);
       pulseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.18);
 
-      carrier.connect(pulseGain);
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(pulseGain);
       pulseGain.connect(sfxGain);
 
-      lfo.start(startTime);
-      carrier.start(startTime);
-      lfo.stop(startTime + 0.18);
-      carrier.stop(startTime + 0.18);
+      osc1.start(startTime);
+      osc2.start(startTime);
+      osc1.stop(startTime + 0.18);
+      osc2.stop(startTime + 0.18);
     };
 
-    playSirenPulse(now);
-    playSirenPulse(now + 0.26);
+    playCaughtPulse(now, SFX_NOTES.Ds5);
+    playCaughtPulse(now + 0.26, SFX_NOTES.E5);
 
-    const caughtNotes = [523, 392, 262];
-    const notesStart = now + 0.48;
+    // 3 nốt sine đi xuống Gs4 → Ds4 → Gs3, mỗi nốt 0.12 s
+    const caughtNotes = [SFX_NOTES.Gs4, SFX_NOTES.Ds4, SFX_NOTES.Gs3];
+    const notesStart = now + 0.44;
     for (let i = 0; i < caughtNotes.length; i++) {
       const nStart = notesStart + i * 0.12;
       const osc = ctx.createOscillator();
@@ -790,8 +941,8 @@ export function playEvent(ev) {
       osc.frequency.setValueAtTime(caughtNotes[i], nStart);
 
       g.gain.setValueAtTime(0.0001, nStart);
-      g.gain.exponentialRampToValueAtTime(0.35, nStart + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, nStart + 0.118);
+      g.gain.linearRampToValueAtTime(SFX_PEAK.caught, nStart + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, nStart + 0.12);
 
       osc.connect(g);
       g.connect(sfxGain);

@@ -16,7 +16,7 @@ import { createPlayer, applyAction, updatePlayer } from './player.js';
 import { createSpawner } from './spawner.js';
 import { checkCollisions } from './collide.js';
 
-export function createGame(seed = 123456789, initialPhase = 'ready') {
+export function createGame(seed = 123456789, initialPhase = 'ready', opts = {}) {
   const rng = createRng(seed);
   return {
     phase: initialPhase,
@@ -33,7 +33,7 @@ export function createGame(seed = 123456789, initialPhase = 'ready') {
     objects: [],
     player: createPlayer(),
     events: [],
-    spawner: createSpawner(rng)
+    spawner: createSpawner(rng, opts)
   };
 }
 
@@ -53,7 +53,7 @@ export function step(state, dt, actions = [], opts = {}) {
     }
     if (state.restartLockT <= 0 && actions.includes('start')) {
       const newSeed = opts?.seed !== undefined ? opts.seed : ((state.seed + 1) >>> 0);
-      const nextGame = createGame(newSeed, 'running');
+      const nextGame = createGame(newSeed, 'running', opts);
       Object.assign(state, nextGame);
     }
     return state;

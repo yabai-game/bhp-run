@@ -35,9 +35,23 @@ export function patternWeights(distance) {
   };
 }
 
-export function createSpawner(rng) {
+export function pickItemType(r) {
+  let cumulative = 0;
+  const entries = Object.entries(ITEM_TYPES);
+  for (let i = 0; i < entries.length; i++) {
+    const [key, val] = entries[i];
+    cumulative += val.prob;
+    if (r < cumulative) {
+      return key;
+    }
+  }
+  return entries[entries.length - 1][0];
+}
+
+export function createSpawner(rng, opts = {}) {
   let nextSpawnDist = FIRST_ROW_Z;
   let lastGap = ROW_GAP_MIN;
+  const forceItem = opts?.forceItem || null;
 
   function spawnRow(world, rowZ, speed, rowDist = nextSpawnDist) {
     const patternR = rng();
@@ -103,18 +117,22 @@ export function createSpawner(rng) {
     const itemLane = validLanes[Math.floor(rng() * validLanes.length)];
 
     const items = [];
+    let yabaiCountInRow = 0;
     for (let i = 0; i < 5; i++) {
       const itemZ = rowZ + 4 + i * 2;
       const ir = rng();
       let itemType;
-      if (ir < 0.50) {
-        itemType = 'TICKET';
-      } else if (ir < 0.80) {
-        itemType = 'ONIGIRI';
-      } else if (ir < 0.95) {
-        itemType = 'SUIKA';
+      if (forceItem) {
+        itemType = forceItem;
       } else {
-        itemType = 'SALARY';
+        itemType = pickItemType(ir);
+        if (itemType === 'YABAI') {
+          if (yabaiCountInRow > 0) {
+            itemType = 'TICKET';
+          } else {
+            yabaiCountInRow++;
+          }
+        }
       }
 
       items.push({

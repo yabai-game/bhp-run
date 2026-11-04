@@ -29,11 +29,13 @@ export function createBackground() {
   let curX = 0;
   const neonWords = ['ラーメン', '居酒屋', 'カラオケ', '薬', '営業中'];
   const neonColors = ['#f472b6', '#22d3ee', '#fde047'];
+  const buildings = [];
 
   while (curX < skylineCanvas.width) {
     const bW = 45 + Math.floor(rng() * 45); // 45 đến 90 px
     const bH = 80 + Math.floor(rng() * 150); // 80 đến 230 px
     const bY = skylineCanvas.height - bH;
+    buildings.push({ x: curX, w: bW, y: bY });
 
     // Màu toà nhà tối
     const shade = 20 + Math.floor(rng() * 14);
@@ -278,8 +280,62 @@ export function createBackground() {
     ctx.fillRect(0, HORIZON_Y, VIEW_W, 60);
   }
 
+  let skylineSignDrawn = false;
+
+  function setBrandLogo(img) {
+    if (!img || !img.complete || img.naturalWidth <= 0) return;
+    if (skylineSignDrawn) return;
+
+    // Toà phủ x = 540 trên canvas skyline
+    const b = buildings.find(b => 540 >= b.x && 540 < b.x + b.w);
+    const roofY = b ? b.y : 100;
+
+    const signW = 132;
+    const signH = 44;
+    const signX = 540 - signW / 2; // 474
+
+    let signBottomY = roofY - 8;
+    let signY = signBottomY - signH;
+    if (roofY < 56) {
+      signY = 4;
+      signBottomY = signY + signH;
+    }
+
+    // Hai chân 2 px #334155 từ đáy bảng tới mái
+    sCtx.fillStyle = '#334155';
+    const legW = 2;
+    const leg1X = signX + 24;
+    const leg2X = signX + signW - 26;
+    if (roofY > signBottomY) {
+      sCtx.fillRect(leg1X, signBottomY, legW, roofY - signBottomY);
+      sCtx.fillRect(leg2X, signBottomY, legW, roofY - signBottomY);
+    }
+
+    // Nền #0b1530, viền 2 px #f472b6
+    sCtx.fillStyle = '#0b1530';
+    sCtx.fillRect(signX, signY, signW, signH);
+
+    sCtx.strokeStyle = '#f472b6';
+    sCtx.lineWidth = 2;
+    sCtx.strokeRect(signX + 1, signY + 1, signW - 2, signH - 2);
+
+    // Logo trắng rộng 116 px căn giữa
+    const logoW = 116;
+    const aspect = img.naturalWidth / img.naturalHeight || (845 / 213);
+    const logoH = logoW / aspect;
+    const logoX = signX + (signW - logoW) / 2;
+    const logoY = signY + (signH - logoH) / 2;
+    sCtx.drawImage(img, logoX, logoY, logoW, logoH);
+
+    skylineSignDrawn = true;
+  }
+
   return {
     renderSkyAndBackground,
-    renderFarFog
+    renderFarFog,
+    setBrandLogo,
+    get hasSkylineSign() {
+      return skylineSignDrawn;
+    }
   };
 }

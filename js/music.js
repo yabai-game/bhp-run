@@ -1,7 +1,7 @@
 import { SIREN_METER_THRESHOLD } from './config.js';
 
+export const SIREN_DS5 = 622.25;
 export const SIREN_E5 = 659.26;
-export const SIREN_F5 = 698.46;
 
 /**
  * Xác định cấp độ căng thẳng dựa trên police meter:
@@ -36,16 +36,16 @@ export function nextBarTime(now, t0, bpm) {
 }
 
 /**
- * Tần số nốt hú cảnh sát luân phiên theo nửa ô nhịp:
- * - Chỉ số chẵn -> E5 (659.26 Hz)
- * - Chỉ số lẻ -> F5 (698.46 Hz)
+ * Tần số nốt hú cảnh sát luân phiên theo nửa ô nhịp (thang âm G# minor):
+ * - Chỉ số chẵn -> Ds5 (622.25 Hz)
+ * - Chỉ số lẻ -> E5 (659.26 Hz)
  *
  * @param {number} halfBarIndex
  * @returns {number}
  */
 export function sirenNoteAt(halfBarIndex) {
   const idx = Math.abs(Math.round(halfBarIndex));
-  return idx % 2 === 0 ? SIREN_E5 : SIREN_F5;
+  return idx % 2 === 0 ? SIREN_DS5 : SIREN_E5;
 }
 
 /**

@@ -1,4 +1,4 @@
-const APP_VERSION = 'g04';
+const APP_VERSION = 'g05';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
@@ -10,6 +10,8 @@ const ASSETS = [
   './js/assets.js',
   './js/audio.js',
   './js/background.js',
+  './js/brand.js',
+  './js/brandart.js',
   './js/collide.js',
   './js/config.js',
   './js/game.js',

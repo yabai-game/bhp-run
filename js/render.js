@@ -20,6 +20,15 @@ import {
 import { createProps } from './props.js';
 import { createBackground } from './background.js';
 import { quipFor, wrapText } from './quips.js';
+import { billboardSlots } from './brand.js';
+import {
+  initBrandArt,
+  updateBrandLogo,
+  getTokenCanvas,
+  getBillboardCanvas,
+  isTokenReady,
+  isBillboardReady
+} from './brandart.js';
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -37,6 +46,15 @@ export function createRenderer(canvas) {
     sidePropsPool.push({ kind: 'sideProp', propType: 'lamp', x: 0, z: 0 });
   }
 
+  // Bộ cấp phát tĩnh 3 đối tượng cho biển quảng cáo YABAI bên đường
+  const brandBoardsPool = [
+    { kind: 'brandBoard', x: 0, z: 0 },
+    { kind: 'brandBoard', x: 0, z: 0 },
+    { kind: 'brandBoard', x: 0, z: 0 }
+  ];
+  const billboardSlotsOut = [];
+  let drawnBoardsCount = 0;
+
   const lastAnim = {
     teo: { name: 'run', frame: 0 },
     police: { name: 'run', frame: 0 }
@@ -48,10 +66,10 @@ export function createRenderer(canvas) {
   // Pool 12 phần tử tĩnh cho điểm bay (+N)
   const floatScoresPool = [];
   for (let i = 0; i < 12; i++) {
-    floatScoresPool.push({ active: false, text: '', x: 0, y: 0, t: 0 });
+    floatScoresPool.push({ active: false, text: '', x: 0, y: 0, t: 0, colorPrefix: 'rgba(253, 224, 71,' });
   }
 
-  function spawnFloatingScore(text, x, y) {
+  function spawnFloatingScore(text, x, y, isYabai = false) {
     let slot = floatScoresPool.find(f => !f.active);
     if (!slot) {
       slot = floatScoresPool.reduce((oldest, item) => (item.t > oldest.t ? item : oldest), floatScoresPool[0]);
@@ -61,6 +79,7 @@ export function createRenderer(canvas) {
     slot.x = x;
     slot.y = y;
     slot.t = 0;
+    slot.colorPrefix = isYabai ? 'rgba(251, 191, 36,' : 'rgba(253, 224, 71,';
   }
 
   function onEvent(ev) {
@@ -69,16 +88,22 @@ export function createRenderer(canvas) {
       shakeT = 0.25;
       hitFlashT = 0.25;
     } else if (ev.type === 'pickup') {
-      const pts = ITEM_TYPES[ev.item] ? ITEM_TYPES[ev.item].points : 10;
       const lane = ev.lane !== undefined ? ev.lane : 1;
       const p = project(laneX(lane), 0.5, 0);
-      spawnFloatingScore(`+${pts}`, p.sx, p.sy);
+      if (ev.item === 'YABAI') {
+        spawnFloatingScore('+100 YABAI!', p.sx, p.sy, true);
+      } else {
+        const pts = ITEM_TYPES[ev.item] ? ITEM_TYPES[ev.item].points : 10;
+        spawnFloatingScore(`+${pts}`, p.sx, p.sy, false);
+      }
     }
   }
 
   let defaultBrandLogo = null;
   function setBrandLogo(img) {
     defaultBrandLogo = img;
+    updateBrandLogo(img);
+    bg.setBrandLogo(img);
   }
 
   function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60, brandLogo = null) {
@@ -151,6 +176,21 @@ export function createRenderer(canvas) {
       }
     }
 
+    // Biển quảng cáo YABAI bên đường (nếu logo đã nạp thành công)
+    drawnBoardsCount = 0;
+    const bCanvas = getBillboardCanvas();
+    if (bCanvas) {
+      billboardSlots(state.distance, billboardSlotsOut);
+      for (let i = 0; i < billboardSlotsOut.length && i < brandBoardsPool.length; i++) {
+        const slot = billboardSlotsOut[i];
+        const bb = brandBoardsPool[i];
+        bb.x = slot.x;
+        bb.z = slot.z;
+        renderList.push(bb);
+        drawnBoardsCount++;
+      }
+    }
+
     // Chướng ngại & Đồ nhặt
     for (let i = 0; i < state.objects.length; i++) {
       const obj = state.objects[i];
@@ -199,7 +239,16 @@ export function createRenderer(canvas) {
     for (let i = 0; i < renderList.length; i++) {
       const item = renderList[i];
 
-      if (item.kind === 'sideProp') {
+      if (item.kind === 'brandBoard') {
+        const bCanvas = getBillboardCanvas();
+        if (bCanvas) {
+          const p = project(item.x, 0, item.z);
+          const k = p.scale / PROP_PX_PER_M;
+          const w = bCanvas.width * k;
+          const h = bCanvas.height * k;
+          ctx.drawImage(bCanvas, p.sx - w / 2, p.sy - h, w, h);
+        }
+      } else if (item.kind === 'sideProp') {
         if (hasPropSprites) {
           const sideSign = item.x < 0 ? -1 : 1;
           const key = sidePropFrameKey(item.propType, sideSign);
@@ -278,7 +327,26 @@ export function createRenderer(canvas) {
         ctx.ellipse(pGnd.sx, pGnd.sy, 0.25 * pGnd.scale, 0.08 * pGnd.scale, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        if (hasPropSprites) {
+        if (item.item === 'YABAI') {
+          const tCanvas = getTokenCanvas();
+          const iy = itemBottomY(state.time, iz);
+          const p = project(ix, iy, iz);
+          const rScreen = 0.3 * p.scale; // YABAI_TOKEN_M = 0.6 m -> r = 0.3 m
+          const cx = p.sx;
+          const cy = p.sy - rScreen; // tâm huy hiệu
+
+          // Quầng vàng sau lưng = 1 hình tròn rgba(251,191,36,0.25) bán kính 1.35 * r
+          ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
+          ctx.beginPath();
+          ctx.arc(cx, cy, 1.35 * rScreen, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Xoay: chiều ngang nhân max(0.2, |cos(time * 3 + z)|)
+          const spin = Math.max(0.2, Math.abs(Math.cos(state.time * 3 + iz)));
+          const w = 2 * rScreen * spin;
+          const h = 2 * rScreen;
+          ctx.drawImage(tCanvas, cx - w / 2, cy - h / 2, w, h);
+        } else if (hasPropSprites) {
           const key = propFrameKey(item);
           const iy = itemBottomY(state.time, iz);
           drawPropSprite(key, ix, iy, iz);
@@ -409,7 +477,7 @@ export function createRenderer(canvas) {
         const progress = f.t / 0.6;
         const alpha = Math.max(0, 1 - progress);
         const curY = f.y - progress * 60;
-        ctx.fillStyle = `rgba(253, 224, 71, ${alpha.toFixed(2)})`;
+        ctx.fillStyle = `${f.colorPrefix} ${alpha.toFixed(2)})`;
         ctx.fillText(f.text, f.x, curY);
       }
     }
@@ -582,5 +650,19 @@ export function createRenderer(canvas) {
     }
   }
 
-  return { render, lastAnim, onEvent, setBrandLogo };
+  return {
+    render,
+    lastAnim,
+    onEvent,
+    setBrandLogo,
+    get drawnBoardsCount() {
+      return drawnBoardsCount;
+    },
+    get isTokenReady() {
+      return isTokenReady();
+    },
+    get hasSkylineSign() {
+      return bg.hasSkylineSign;
+    }
+  };
 }
