@@ -4,9 +4,7 @@ export const HUD = {
   best: { x: 352, y: 14, w: 112, h: 52 },
   mute: { x: 476, y: 14, w: 52, h: 52 },
   meter: { x: 16, y: 78, w: 512, h: 36 },
-  charCard: { x: 84, y: 462, w: 372, h: 162 },
-  charPrev: { x: 20, y: 462, w: 56, h: 56 },
-  charNext: { x: 464, y: 462, w: 56, h: 56 }
+  charButton: { x: 120, y: 470, w: 300, h: 56 }
 };
 
 export function fitFontSize(text, maxW, startSize, minSize, measure) {

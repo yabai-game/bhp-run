@@ -9,8 +9,8 @@ export function loadSprites() {
 
   if (noSprites) {
     return {
-      ready: Promise.resolve({ teo: null, police: null, props: null, gathief: null }),
-      late: Promise.resolve({ teo: null, police: null, props: null, gathief: null })
+      ready: Promise.resolve({ teo: null, police: null, props: null, gathief: null, no: null }),
+      late: Promise.resolve({ teo: null, police: null, props: null, gathief: null, no: null })
     };
   }
 
@@ -44,19 +44,20 @@ export function loadSprites() {
     }
   };
 
-  // Nạp các atlas độc lập: teo, police, props, gathief (thử nạp lặng lẽ)
+  // Nạp các atlas độc lập: teo, police, props, gathief, no (2 atlas cuối thử nạp lặng lẽ)
   const pTeo = loadSingle('teo');
   const pPolice = loadSingle('police');
   const pProps = noProps ? Promise.resolve(null) : loadSingle('props');
   const pGathief = loadSingle('gathief', true);
+  const pNo = loadSingle('no', true);
 
-  const loadAll = Promise.all([pTeo, pPolice, pProps, pGathief])
-    .then(([teo, police, props, gathief]) => ({ teo, police, props, gathief }));
+  const loadAll = Promise.all([pTeo, pPolice, pProps, pGathief, pNo])
+    .then(([teo, police, props, gathief, no]) => ({ teo, police, props, gathief, no }));
 
   // Promise late: nạp xong thật (kể cả sau timeout ready)
   const late = loadAll.catch(err => {
     console.warn('Lỗi nạp sprite (late):', err);
-    return { teo: null, police: null, props: null, gathief: null };
+    return { teo: null, police: null, props: null, gathief: null, no: null };
   });
 
   // Đồng hồ timeout 8 s chỉ đếm khi trang đang hiển thị (document.visibilityState === 'visible')
@@ -126,12 +127,12 @@ export function loadSprites() {
     }),
     timerPromise.then(() => {
       console.warn('Quá thời gian nạp sprite (8s trang hiển thị), chuyển sang chế độ dự phòng.');
-      return { teo: null, police: null, props: null, gathief: null };
+      return { teo: null, police: null, props: null, gathief: null, no: null };
     })
   ]).catch(err => {
     cleanupTimer();
     console.warn('Lỗi khi nạp sprite kịp thời:', err);
-    return { teo: null, police: null, props: null, gathief: null };
+    return { teo: null, police: null, props: null, gathief: null, no: null };
   });
 
   return { ready, late };

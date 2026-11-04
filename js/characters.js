@@ -1,15 +1,43 @@
 export const CHARACTERS = {
   TEO: {
-    id: 'TEO', name: 'TÈO', desc: 'Nhân vật gốc', unlockBest: 0, carriesChicken: false,
+    id: 'TEO',
+    name: 'TÈO',
+    tag: 'NHÂN VẬT GỐC',
+    desc: 'Nhân vật gốc',
+    unlockBest: 0,
+    carriesChicken: false,
+    carry: null,
+    strength: 'Chạy nhanh nhất',
+    weakness: 'Không có đồ cứu',
     story: 'Ở VN là boy phố, sang Nhật lương về tay 10 lá chưa ăn. Túng quá bỏ ra ngoài làm BHP.'
   },
   GA: {
-    id: 'GA', name: 'TÍ', desc: 'Chạy chậm · gà vỗ cánh cứu 1 lần', unlockBest: 5000, carriesChicken: true,
+    id: 'GA',
+    name: 'TÍ',
+    tag: 'TRỘM GÀ',
+    desc: 'Chạy chậm · gà vỗ cánh cứu 1 lần',
+    unlockBest: 5000,
+    carriesChicken: true,
+    carry: 'chicken',
+    strength: 'Gà vỗ cánh cứu 1 lần',
+    weakness: 'Chạy chậm 15%',
     story: 'Qua Nhật sáng đi làm, chiều tối về đi trộm gà của người dân. Bị cảnh sát phát hiện nên trốn ra làm BHP.'
+  },
+  NO: {
+    id: 'NO',
+    name: 'NỞ',
+    tag: 'SỐNG ẢO',
+    desc: 'Chạy chậm · ném hộp cherry +1 mạng',
+    unlockBest: 10000,
+    carriesChicken: false,
+    carry: 'cherry',
+    strength: 'Bị tóm: ném hộp cherry, +1 mạng',
+    weakness: 'Chạy chậm 15%',
+    story: 'Sang Nhật làm nhưng ham sống ảo, đi trộm trái cây còn quay đăng tóp tóp nên bị cảnh sát phát hiện, trốn ra làm BHP.'
   }
 };
 
-export const CHARACTER_ORDER = ['TEO', 'GA'];
+export const CHARACTER_ORDER = ['TEO', 'GA', 'NO'];
 
 export function isUnlocked(id, best = 0, unlockAll = false) {
   if (!id || !CHARACTERS[id]) return false;

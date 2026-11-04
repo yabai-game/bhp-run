@@ -1,4 +1,4 @@
-import { DT, VIEW_W } from './config.js';
+import { DT, VIEW_W, SPEED_START, CHICKEN_SPEED_MUL, CHERRY_SPEED_MUL } from './config.js';
 import { createGame, step } from './game.js';
 import { createInput } from './input.js';
 import { createRenderer } from './render.js';
@@ -14,6 +14,8 @@ import {
   sanitizeCharacter,
   justUnlocked
 } from './characters.js';
+import { createLobby } from './lobby.js';
+import { lobbyHit } from './lobbylayout.js';
 
 // Đăng ký Service Worker chỉ khi trong Secure Context (HTTPS hoặc localhost)
 if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -72,7 +74,7 @@ function init() {
   let bestScore = savedBestScore;
   let bestScoreBeforeRun = bestScore;
   let isNewBest = false;
-  let justUnlockedGa = false;
+  let justUnlockedList = [];
   let flashCharSelectT = 0;
   let seed = Date.now() >>> 0;
 
@@ -95,6 +97,9 @@ function init() {
   const isYabaiDebug = isDebug && urlParams.get('yabai') === '1';
 
   let selectedCharId = loadSelectedChar(bestScore, isUnlockAll);
+  let lobbyOpen = false;
+  let lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
+  const lobby = createLobby();
 
   const gameOpts = {
     characterId: selectedCharId,
@@ -111,7 +116,7 @@ function init() {
 
   function updateMuteVisibility() {
     if (!muteBtn) return;
-    if (disclaimerOpen) {
+    if (disclaimerOpen || lobbyOpen) {
       muteBtn.classList.add('hidden');
     } else {
       muteBtn.classList.remove('hidden');
@@ -182,6 +187,13 @@ function init() {
       }
     };
   }
+
+  globalThis.__bprLobby = {
+    get open() { return lobbyOpen; },
+    get index() { return lobbyIndex; },
+    get anim() { return lobby.getDebugState().anim; },
+    get source() { return lobby.getDebugState().source; }
+  };
 
   initAudio();
 
@@ -304,6 +316,19 @@ function init() {
   let lastFpsUpdate = performance.now();
   let displayFps = 60;
 
+  function applyCharacterSelection(newCharId) {
+    selectedCharId = newCharId;
+    saveSelectedChar(selectedCharId);
+    game.characterId = selectedCharId;
+    const carriesChicken = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
+    game.chicken = { held: carriesChicken, flapReady: carriesChicken };
+    const carriesCherry = CHARACTERS[selectedCharId]?.carry === 'cherry';
+    game.cherry = { held: carriesCherry, lifeReady: carriesCherry };
+    game.speed = carriesChicken
+      ? SPEED_START * CHICKEN_SPEED_MUL
+      : (carriesCherry ? SPEED_START * CHERRY_SPEED_MUL : SPEED_START);
+  }
+
   const pollFn = () => {
     let actions = input.pollActions();
     const taps = input.pollTaps();
@@ -319,13 +344,65 @@ function init() {
       actions = actions.filter(a => a !== 'start');
     }
 
-    // Phím KeyC (char_next) chuyển nhân vật khi ở màn ready
+    // Nếu sảnh nhân vật đang mở: mọi tương tác chuyển cho sảnh, không thể bắt đầu ván
+    if (lobbyOpen) {
+      // Enter / Space (a 'start' with no tap) picks the character on show
+      const keySelect = actions.includes('start') && taps.length === 0;
+      actions = actions.filter(a => a !== 'start');
+      if (keySelect) {
+        const candidateId = CHARACTER_ORDER[lobbyIndex];
+        if (isUnlocked(candidateId, bestScore, isUnlockAll)) {
+          applyCharacterSelection(candidateId);
+          lobbyOpen = false;
+          updateMuteVisibility();
+          return [];
+        }
+      }
+
+      if (actions.includes('escape')) {
+        lobbyOpen = false;
+        updateMuteVisibility();
+      }
+      if (actions.includes('left')) {
+        lobbyIndex = (lobbyIndex - 1 + CHARACTER_ORDER.length) % CHARACTER_ORDER.length;
+        lobby.setIndex(lobbyIndex);
+      }
+      if (actions.includes('right')) {
+        lobbyIndex = (lobbyIndex + 1) % CHARACTER_ORDER.length;
+        lobby.setIndex(lobbyIndex);
+      }
+
+      for (let i = 0; i < taps.length; i++) {
+        const hit = lobbyHit(taps[i].x, taps[i].y);
+        if (hit === 'back') {
+          lobbyOpen = false;
+          updateMuteVisibility();
+        } else if (hit === 'prev') {
+          lobbyIndex = (lobbyIndex - 1 + CHARACTER_ORDER.length) % CHARACTER_ORDER.length;
+          lobby.setIndex(lobbyIndex);
+        } else if (hit === 'next') {
+          lobbyIndex = (lobbyIndex + 1) % CHARACTER_ORDER.length;
+          lobby.setIndex(lobbyIndex);
+        } else if (hit === 'select') {
+          const candidateId = CHARACTER_ORDER[lobbyIndex];
+          if (isUnlocked(candidateId, bestScore, isUnlockAll)) {
+            applyCharacterSelection(candidateId);
+            lobbyOpen = false;
+            updateMuteVisibility();
+          }
+        }
+      }
+
+      return [];
+    }
+
+    // Phím KeyC (char_next) mở lobby khi ở màn ready
     if (game.phase === 'ready' && actions.includes('char_next')) {
-      selectedCharId = nextCharacter(selectedCharId, 1);
-      saveSelectedChar(selectedCharId);
-      game.characterId = selectedCharId;
-      const carries = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
-      game.chicken = { held: carries, flapReady: carries };
+      lobbyOpen = true;
+      lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
+      lobby.setIndex(lobbyIndex);
+      lobby.ensureLoaded();
+      updateMuteVisibility();
       actions = actions.filter(a => a !== 'char_next');
     }
 
@@ -333,19 +410,12 @@ function init() {
     if (game.phase === 'ready' && taps.length > 0) {
       for (let i = 0; i < taps.length; i++) {
         const tap = taps[i];
-        if (insideRect(tap.x, tap.y, HUD.charPrev)) {
-          selectedCharId = nextCharacter(selectedCharId, -1);
-          saveSelectedChar(selectedCharId);
-          game.characterId = selectedCharId;
-          const carries = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
-          game.chicken = { held: carries, flapReady: carries };
-          actions = actions.filter(a => a !== 'start');
-        } else if (insideRect(tap.x, tap.y, HUD.charNext) || insideRect(tap.x, tap.y, HUD.charCard)) {
-          selectedCharId = nextCharacter(selectedCharId, 1);
-          saveSelectedChar(selectedCharId);
-          game.characterId = selectedCharId;
-          const carries = Boolean(CHARACTERS[selectedCharId]?.carriesChicken);
-          game.chicken = { held: carries, flapReady: carries };
+        if (insideRect(tap.x, tap.y, HUD.charButton)) {
+          lobbyOpen = true;
+          lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
+          lobby.setIndex(lobbyIndex);
+          lobby.ensureLoaded();
+          updateMuteVisibility();
           actions = actions.filter(a => a !== 'start');
         }
       }
@@ -366,11 +436,11 @@ function init() {
     if (game.phase === 'ready' && currentActions.includes('start')) {
       bestScoreBeforeRun = bestScore;
       isNewBest = false;
-      justUnlockedGa = false;
+      justUnlockedList = [];
     } else if (game.phase === 'caught' && game.restartLockT <= 0 && currentActions.includes('start')) {
       bestScoreBeforeRun = bestScore;
       isNewBest = false;
-      justUnlockedGa = false;
+      justUnlockedList = [];
     }
 
     const nextSeed = Date.now() >>> 0;
@@ -386,8 +456,8 @@ function init() {
     if (game.events.some(e => e.type === 'caught')) {
       isNewBest = game.score > bestScoreBeforeRun;
       const newlyUnlocked = justUnlocked(bestScoreBeforeRun, game.score);
-      justUnlockedGa = newlyUnlocked.includes('GA');
-      if (justUnlockedGa) {
+      justUnlockedList = newlyUnlocked;
+      if (newlyUnlocked.length > 0) {
         flashCharSelectT = 0.9;
       }
       if (game.score > savedBestScore) {
@@ -408,7 +478,7 @@ function init() {
     // Quản lý BGM: chỉ chạy khi running, tab hiện và không xoay ngang
     if (game.phase === 'running' && !document.hidden && !isPausedByRotate) {
       startBgm(game.meter);
-    } else if (game.phase === 'ready') {
+    } else if (game.phase === 'ready' || lobbyOpen) {
       stopBgm();
     }
 
@@ -447,19 +517,41 @@ function init() {
       frameTime,
       brandLogo,
       isNewBest,
-      justUnlockedGa,
+      justUnlockedList,
       isUnlockAll,
       flashCharSelectT
     );
+
+    if (lobbyOpen) {
+      // The lobby covers the start screen completely
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#080c22';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+      const isReduced = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      lobby.update(frameTime, isReduced);
+      lobby.render(
+        ctx,
+        lobbyIndex,
+        selectedCharId,
+        bestScore,
+        isUnlockAll,
+        isReduced,
+        sprites
+      );
+    }
 
     if (isDebug) {
       globalThis.__bprFps = displayFps;
       globalThis.__bprProps = (sprites && sprites.props) ? 'sprite' : 'fallback';
       globalThis.__bprChar = {
         id: game.characterId,
-        held: Boolean(game.chicken?.held),
-        flapReady: Boolean(game.chicken?.flapReady),
-        sprite: (sprites && sprites.gathief) ? 'gathief' : 'fallback'
+        held: Boolean(game.chicken?.held || game.cherry?.held),
+        flapReady: Boolean(game.chicken?.flapReady || game.cherry?.lifeReady),
+        sprite: (sprites && (game.characterId === 'GA' ? sprites.gathief : (game.characterId === 'NO' ? sprites.no : sprites.teo))) ? 'sprite' : 'fallback'
       };
       if (renderer.lastAnim) {
         globalThis.__bprAnim = {

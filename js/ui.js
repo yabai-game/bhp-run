@@ -84,7 +84,7 @@ export function pill(ctx, x, y, w, h, fill, border = null, borderW = 0) {
   }
 }
 
-export function button3d(ctx, cx, cy, w, h, label, size, scale = 1, enabled = true) {
+export function button3d(ctx, cx, cy, w, h, label, size, scale = 1, enabled = true, customBody = null) {
   ctx.save();
   ctx.translate(cx, cy);
   if (scale !== 1) {
@@ -96,9 +96,9 @@ export function button3d(ctx, cx, cy, w, h, label, size, scale = 1, enabled = tr
   const x = -halfW;
   const y = -halfH;
 
-  const bodyFill = enabled ? '#22c55e' : '#64748b';
-  const edgeFill = enabled ? '#15803d' : '#334155';
-  const textFill = enabled ? '#06301a' : '#1e293b';
+  const bodyFill = customBody ? customBody : (enabled ? '#22c55e' : '#64748b');
+  const edgeFill = customBody ? '#0f5132' : (enabled ? '#15803d' : '#334155');
+  const textFill = customBody ? '#bbf7d0' : (enabled ? '#06301a' : '#1e293b');
 
   // 1. Cạnh dưới lệch xuống 8 px
   pill(ctx, x, y + 8, w, h, edgeFill, '#0b1530', 4);
@@ -107,11 +107,13 @@ export function button3d(ctx, cx, cy, w, h, label, size, scale = 1, enabled = tr
   pill(ctx, x, y, w, h, bodyFill, '#0b1530', 4);
 
   // 3. Chữ không viền
-  ctx.font = `800 ${size}px ${UI_FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = textFill;
-  ctx.fillText(label, 0, 0);
+  if (label) {
+    ctx.font = `800 ${size}px ${UI_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = textFill;
+    ctx.fillText(label, 0, 0);
+  }
 
   ctx.restore();
 }
@@ -361,5 +363,49 @@ export function chickenIcon(ctx, cx, cy, s, flapPhase = 0) {
   ctx.fill();
   ctx.stroke();
 
+  ctx.restore();
+}
+
+export function cherryBoxIcon(ctx, cx, cy, s) {
+  ctx.save();
+  const w = s * 1.15;
+  const h = s * 0.9;
+  const rx = cx - w / 2;
+  const ry = cy - h / 2;
+
+  // Hộp trong suốt viền trắng bo tròn
+  roundedRectPath(ctx, rx, ry, w, h, 6);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(1.5, s * 0.07);
+  ctx.stroke();
+
+  // 6 chấm đỏ (2 hàng 3 cột)
+  const dotR = Math.max(2, s * 0.12);
+  const cols = 3;
+  const rows = 2;
+  const startX = cx - (cols - 1) * (dotR * 2.2) / 2;
+  const startY = cy - (rows - 1) * (dotR * 2.0) / 2;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = startX + c * (dotR * 2.2);
+      const y = startY + r * (dotR * 2.0);
+      ctx.beginPath();
+      ctx.arc(x, y, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = '#ef4444';
+      ctx.fill();
+      ctx.strokeStyle = '#991b1b';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Đốm sáng trắng
+      ctx.beginPath();
+      ctx.arc(x - dotR * 0.35, y - dotR * 0.35, dotR * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }

@@ -770,6 +770,51 @@ export function playEvent(ev) {
 
     osc.start(now);
     osc.stop(now + 0.07);
+  } else if (ev.type === 'throw') {
+    // Nhiễu bandpass quét 3000 → 600 Hz 0,25 s (vút), đỉnh throw
+    const buffer = getNoiseBuffer(ctx);
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = buffer;
+
+    const nFilter = ctx.createBiquadFilter();
+    nFilter.type = 'bandpass';
+    nFilter.frequency.setValueAtTime(3000, now);
+    nFilter.frequency.exponentialRampToValueAtTime(600, now + 0.25);
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(SFX_PEAK.throw, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+    nSrc.connect(nFilter);
+    nFilter.connect(nGain);
+    nGain.connect(sfxGain);
+
+    nSrc.start(now);
+    nSrc.stop(now + 0.25);
+
+    // 3 tiếng "tách" triangle Ds6, B5, Gs5 cách 0,05 s
+    const notes = [
+      { note: SFX_NOTES.Ds6, time: now },
+      { note: SFX_NOTES.B5, time: now + 0.05 },
+      { note: SFX_NOTES.Gs5, time: now + 0.10 }
+    ];
+    for (let i = 0; i < notes.length; i++) {
+      const { note, time } = notes[i];
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(note, time);
+
+      g.gain.setValueAtTime(SFX_PEAK.throw, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+
+      osc.connect(g);
+      g.connect(sfxGain);
+
+      osc.start(time);
+      osc.stop(time + 0.05);
+    }
   } else if (ev.type === 'jump') {
     // Triangle trượt Gs4 → Ds5 trong 0,10 s (exponential), qua lowpass 3000 Hz, đỉnh jump, tắt lúc 0,14 s
     const osc = ctx.createOscillator();

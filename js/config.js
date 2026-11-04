@@ -80,12 +80,19 @@ export const CHICKEN_SPEED_MUL = 0.85;
 export const FLAP_V = 8.5;
 export const DOUBLE_TAP_MS = 350;
 
+export const CHERRY_SPEED_MUL = 0.85;
+export const CHERRY_LIFE_METER = 40;
+export const CHERRY_INVULN = 1.5;
+export const LOBBY_ACTION_MIN = 4;
+export const LOBBY_ACTION_MAX = 7;
+
 export const SFX_PEAK = {
   lane: 0.025,
   drop: 0.04,
   slide: 0.045,
   jump: 0.05,
   flap: 0.06,
+  throw: 0.07,
   pickup: 0.09,
   pickupYabai: 0.11,
   hit: 0.14,

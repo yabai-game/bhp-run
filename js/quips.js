@@ -21,7 +21,9 @@ export const QUIPS_GA = [
 ];
 
 export function quipFor(seed, characterId = 'TEO') {
-  const list = characterId === 'GA' ? QUIPS_GA : QUIPS;
+  let list = QUIPS;
+  // Nở uses the original 12 lines (user decision 2026-11-04)
+  if (characterId === 'GA') list = QUIPS_GA;
   return list[(seed >>> 0) % list.length];
 }
 

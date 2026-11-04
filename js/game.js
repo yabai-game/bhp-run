@@ -11,7 +11,10 @@ import {
   DESPAWN_Z,
   ITEM_TYPES,
   CHICKEN_SPEED_MUL,
-  FLAP_V
+  FLAP_V,
+  CHERRY_SPEED_MUL,
+  CHERRY_LIFE_METER,
+  CHERRY_INVULN
 } from './config.js';
 import { CHARACTERS } from './characters.js';
 import { createRng } from './rng.js';
@@ -19,18 +22,41 @@ import { createPlayer, applyAction, updatePlayer } from './player.js';
 import { createSpawner } from './spawner.js';
 import { checkCollisions } from './collide.js';
 
+export function tryExtraLife(state) {
+  if (state.cherry && state.cherry.held && state.cherry.lifeReady) {
+    state.cherry.lifeReady = false;
+    state.cherry.held = false;
+    state.meter = CHERRY_LIFE_METER;
+    state.stumbleT = 0;
+    state.invulnT = CHERRY_INVULN;
+    state.events.push({ type: 'throw' });
+    return true;
+  }
+  return false;
+}
+
 export function createGame(seed = 123456789, initialPhase = 'ready', opts = {}) {
   const rng = createRng(seed);
   const characterId = opts?.characterId || 'TEO';
-  const carriesChicken = Boolean(CHARACTERS[characterId]?.carriesChicken);
+  const charDef = CHARACTERS[characterId];
+  const carriesChicken = Boolean(charDef?.carriesChicken);
+  const carriesCherry = charDef?.carry === 'cherry';
+  let initialSpeed = SPEED_START;
+  if (carriesChicken) {
+    initialSpeed = SPEED_START * CHICKEN_SPEED_MUL;
+  } else if (carriesCherry) {
+    initialSpeed = SPEED_START * CHERRY_SPEED_MUL;
+  }
   return {
     phase: initialPhase,
     seed,
     characterId,
     chicken: { held: carriesChicken, flapReady: carriesChicken },
+    cherry: { held: carriesCherry, lifeReady: carriesCherry },
+    invulnT: 0,
     time: 0,
     distance: 0,
-    speed: carriesChicken ? SPEED_START * CHICKEN_SPEED_MUL : SPEED_START,
+    speed: initialSpeed,
     meter: 0,
     stumbleT: 0,
     items: 0,
@@ -66,6 +92,10 @@ export function step(state, dt, actions = [], opts = {}) {
     return state;
   }
 
+  if (state.invulnT > 0) {
+    state.invulnT = Math.max(0, state.invulnT - dt);
+  }
+
   // 1. Áp action
   for (let i = 0; i < actions.length; i++) {
     const act = actions[i];
@@ -78,10 +108,16 @@ export function step(state, dt, actions = [], opts = {}) {
         else if (act === 'slide') state.events.push({ type: 'slide' });
       }
     } else if (act === 'drop') {
-      if (state.phase === 'running' && state.chicken && state.chicken.held) {
-        state.chicken.held = false;
-        state.chicken.flapReady = false;
-        state.events.push({ type: 'drop', lane: state.player.lane });
+      if (state.phase === 'running') {
+        if (state.chicken && state.chicken.held) {
+          state.chicken.held = false;
+          state.chicken.flapReady = false;
+          state.events.push({ type: 'drop', lane: state.player.lane });
+        } else if (state.cherry && state.cherry.held) {
+          state.cherry.held = false;
+          state.cherry.lifeReady = false;
+          state.events.push({ type: 'drop', lane: state.player.lane });
+        }
       }
     }
   }
@@ -92,15 +128,21 @@ export function step(state, dt, actions = [], opts = {}) {
   // 3. Cập nhật tốc độ / quãng đường, trôi vật thể
   state.time += dt;
   const baseSpeed = Math.min(SPEED_START + SPEED_GAIN * state.time, SPEED_MAX);
-  const chickenMul = (state.chicken && state.chicken.held) ? CHICKEN_SPEED_MUL : 1.0;
+  let carryMul = 1.0;
+  if (state.chicken && state.chicken.held) {
+    carryMul = CHICKEN_SPEED_MUL;
+  } else if (state.cherry && state.cherry.held) {
+    carryMul = CHERRY_SPEED_MUL;
+  }
+
   if (state.stumbleT > 0) {
     state.stumbleT = Math.max(0, state.stumbleT - dt);
     if (state.stumbleT <= 1e-9) {
       state.stumbleT = 0;
     }
-    state.speed = baseSpeed * STUMBLE_SPEED_MUL * chickenMul;
+    state.speed = baseSpeed * STUMBLE_SPEED_MUL * carryMul;
   } else {
-    state.speed = baseSpeed * chickenMul;
+    state.speed = baseSpeed * carryMul;
   }
 
   state.distance += state.speed * dt;
@@ -123,6 +165,9 @@ export function step(state, dt, actions = [], opts = {}) {
   let hitOccurred = false;
   for (let i = 0; i < hits.length; i++) {
     const h = hits[i];
+    if (state.invulnT > 0) {
+      continue;
+    }
     if (state.chicken && state.chicken.held && state.chicken.flapReady) {
       state.chicken.flapReady = false;
       state.events.push({ type: 'flap' });
@@ -137,6 +182,10 @@ export function step(state, dt, actions = [], opts = {}) {
     hitOccurred = true;
 
     if (state.stumbleT > 0) {
+      if (tryExtraLife(state)) {
+        state.speed = baseSpeed;
+        break;
+      }
       state.phase = 'caught';
       state.caughtReason = 'double';
       state.restartLockT = RESTART_LOCK;
@@ -144,9 +193,13 @@ export function step(state, dt, actions = [], opts = {}) {
       break;
     } else {
       state.stumbleT = STUMBLE_TIME;
-      state.speed = baseSpeed * STUMBLE_SPEED_MUL * chickenMul;
+      state.speed = baseSpeed * STUMBLE_SPEED_MUL * carryMul;
       state.meter = Math.min(METER_MAX, state.meter + METER_HIT);
       if (state.meter >= 100) {
+        if (tryExtraLife(state)) {
+          state.speed = baseSpeed;
+          break;
+        }
         state.phase = 'caught';
         state.caughtReason = 'meter';
         state.restartLockT = RESTART_LOCK;
@@ -161,15 +214,17 @@ export function step(state, dt, actions = [], opts = {}) {
     state.meter = Math.max(0, state.meter - METER_DECAY * dt);
   }
   if (state.phase === 'running' && state.meter >= 100) {
-    state.phase = 'caught';
-    state.caughtReason = 'meter';
-    state.restartLockT = RESTART_LOCK;
-    state.events.push({ type: 'caught', reason: 'meter' });
+    if (tryExtraLife(state)) {
+      state.speed = baseSpeed;
+    } else {
+      state.phase = 'caught';
+      state.caughtReason = 'meter';
+      state.restartLockT = RESTART_LOCK;
+      state.events.push({ type: 'caught', reason: 'meter' });
+    }
   }
 
-  // 7. Kiểm tra caught đã hoàn tất ở trên
-
-  // 8. Dọn vật z < -5
+  // 7. Dọn vật z < -5
   state.objects = state.objects.filter(obj => obj.z >= DESPAWN_Z);
 
   // Cập nhật điểm

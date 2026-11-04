@@ -1,4 +1,4 @@
-const APP_VERSION = 'g08';
+const APP_VERSION = 'g09';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
@@ -19,6 +19,8 @@ const ASSETS = [
   './js/gesture.js',
   './js/hudlayout.js',
   './js/input.js',
+  './js/lobby.js',
+  './js/lobbylayout.js',
   './js/loop.js',
   './js/main.js',
   './js/music.js',
@@ -36,6 +38,14 @@ const ASSETS = [
   './assets/sprites/teo.json',
   './assets/sprites/gathief.webp',
   './assets/sprites/gathief.json',
+  './assets/sprites/no.webp',
+  './assets/sprites/no.json',
+  './assets/sprites/lobby_teo.webp',
+  './assets/sprites/lobby_teo.json',
+  './assets/sprites/lobby_ga.webp',
+  './assets/sprites/lobby_ga.json',
+  './assets/sprites/lobby_no.webp',
+  './assets/sprites/lobby_no.json',
   './assets/sprites/police.webp',
   './assets/sprites/police.json',
   './assets/sprites/props.webp',
