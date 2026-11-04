@@ -921,6 +921,7 @@ export function createRenderer(canvas) {
         shadowDy: 8
       });
 
+      const readyChar = CHARACTERS[state.characterId] || CHARACTERS.TEO;
       const subText = 'Tèo làm BHP — cảnh sát đang đuổi, chạy đi!';
       ctx.font = `700 22px ${UI_FONT}`;
       const subMeasure = ctx.measureText(subText).width;
@@ -949,21 +950,49 @@ export function createRenderer(canvas) {
       crown(ctx, 270 - recBadgeW / 2 + 22, 430, 20, '#fbbf24');
       outlinedText(ctx, bestStr, 270 + 12, 430, 22, 800, '#fbbf24');
 
-      // Nút mở sảnh nhân vật HUD.charButton = { x: 120, y: 470, w: 300, h: 56 }
-      const currentChar = CHARACTERS[state.characterId] || CHARACTERS.TEO;
+      // Thẻ nhân vật mở sảnh HUD.charButton = { x: 40, y: 456, w: 460, h: 128 }: tên + nhãn + hoàn cảnh (chủ kênh 2026-11-04)
+      const currentChar = readyChar;
       const unlocked = isUnlocked(currentChar.id, bestScore, unlockAll);
+      const cb = HUD.charButton;
+      const tagColors = { TEO: ['#22d3ee', '#063040'], GA: ['#f472b6', '#4b0f2b'], NO: ['#fbbf24', '#3b2603'] };
+      const [tagBg, tagFg] = tagColors[currentChar.id] || tagColors.TEO;
 
-      let btnBorder = unlocked ? '#22d3ee' : '#64748b';
+      let btnBorder = unlocked ? tagBg : '#64748b';
       if (flashCharSelectT > 0) {
         const flashTick = Math.floor(animTime * 10) % 2 === 0;
-        btnBorder = flashTick ? '#fde047' : '#22d3ee';
+        btnBorder = flashTick ? '#fde047' : tagBg;
+      }
+      card(ctx, cb.x, cb.y, cb.w, cb.h, btnBorder);
+
+      const rowY = cb.y + 32;
+      outlinedText(ctx, currentChar.name, cb.x + 24, rowY, 30, 800, '#ffffff', { align: 'left' });
+      ctx.font = `800 30px ${UI_FONT}`;
+      const nameW = ctx.measureText(currentChar.name).width;
+      ctx.font = `800 15px ${UI_FONT}`;
+      const tagW = ctx.measureText(currentChar.tag).width + 24;
+      const tagX = cb.x + 24 + nameW + 14;
+      pill(ctx, tagX, rowY - 12, tagW, 24, tagBg, null, 0);
+      ctx.fillStyle = tagFg;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(currentChar.tag, tagX + tagW / 2, rowY + 1);
+      if (!unlocked) {
+        lockIcon(ctx, tagX + tagW + 18, rowY, 22);
+      }
+      outlinedText(ctx, 'ĐỔI ›', cb.x + cb.w - 24, rowY, 22, 800, '#22d3ee', { align: 'right' });
+
+      // Hoàn cảnh 16 px, tối đa 3 dòng, căn giữa vùng dưới hàng tên
+      ctx.font = `700 16px ${UI_FONT}`;
+      const storyLines = wrapText(currentChar.story, cb.w - 48, str => ctx.measureText(str).width).slice(0, 3);
+      const storyMidY = cb.y + 88;
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      for (let i = 0; i < storyLines.length; i++) {
+        ctx.fillText(storyLines[i], cb.x + 24, storyMidY - ((storyLines.length - 1) * 21) / 2 + i * 21);
       }
 
-      pill(ctx, HUD.charButton.x, HUD.charButton.y, HUD.charButton.w, HUD.charButton.h, 'rgba(11, 21, 48, 0.88)', btnBorder, 3);
-      outlinedText(ctx, currentChar.name, HUD.charButton.x + 105, HUD.charButton.y + HUD.charButton.h / 2, 24, 800, '#ffffff');
-      outlinedText(ctx, 'ĐỔI ›', HUD.charButton.x + HUD.charButton.w - 50, HUD.charButton.y + HUD.charButton.h / 2, 18, 700, '#22d3ee');
-
-      // Nút chạy tâm (270, 584)
+      // Nút chạy tâm (270, 652)
       const btnScale = reducedMotion ? 1 : (1 + 0.04 * Math.sin(animTime * 4));
       let btnLabel = 'CHẠM ĐỂ CHẠY';
       let btnEnabled = true;
@@ -975,10 +1004,10 @@ export function createRenderer(canvas) {
         btnEnabled = false;
       }
 
-      button3d(ctx, 270, 584, 380, 84, btnLabel, 36, btnScale, btnEnabled);
+      button3d(ctx, 270, 652, 380, 84, btnLabel, 36, btnScale, btnEnabled);
 
-      // Chip điều khiển: vòng tròn tâm y = 676, nhãn tâm y = 728
-      const chipY = 676;
+      // Chip điều khiển: vòng tròn tâm y = 742, nhãn tâm y = 794
+      const chipY = 742;
       const chipR = 26;
       const chips = [
         { x: 170, kind: 'lr', label: 'Đổi làn' },
@@ -988,16 +1017,16 @@ export function createRenderer(canvas) {
       for (const chip of chips) {
         pill(ctx, chip.x - chipR, chipY - chipR, chipR * 2, chipR * 2, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
         arrowIcon(ctx, chip.x, chipY, 15, chip.kind);
-        outlinedText(ctx, chip.label, chip.x, 728, 18, 700, '#cbd5e1');
+        outlinedText(ctx, chip.label, chip.x, 794, 18, 700, '#cbd5e1');
       }
 
-      // Ghi công y = 782 / 798
-      outlinedText(ctx, 'Một game của', 270, 782, 18, 700, '#94a3b8');
+      // Ghi công y = 846 / 862
+      outlinedText(ctx, 'Một game của', 270, 846, 18, 700, '#94a3b8');
       if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
         const logoW = 220;
         const logoH = logoW * (213 / 845);
         const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 798;
+        const logoY = 862;
         ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
       }
 
