@@ -1,10 +1,11 @@
 export const VIEW_W = 540;
 export const VIEW_H = 960;
 export const CX = 270;
-export const HORIZON_Y = 452;
+export const HORIZON_Y = 384;
 export const CAM_DIST = 6;
 export const CAM_HEIGHT = 3.5;
-export const FOCAL = 580;
+export const CAM_FOLLOW = 0.5;
+export const FOCAL = 696;
 export const DRAW_DIST = 120;
 export const DESPAWN_Z = -5;
 

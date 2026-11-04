@@ -6,7 +6,7 @@ import {
   ITEM_TYPES,
   UI_FONT
 } from './config.js';
-import { project, laneX } from './track.js';
+import { project, laneX, cameraX } from './track.js';
 import {
   teoAnim,
   policeAnim,
@@ -94,6 +94,8 @@ export function createRenderer(canvas) {
     slot.colorPrefix = isYabai ? 'rgba(251, 191, 36,' : 'rgba(253, 224, 71,';
   }
 
+  let lastCamX = 0;
+
   function onEvent(ev) {
     if (!ev) return;
     if (ev.type === 'hit') {
@@ -101,7 +103,7 @@ export function createRenderer(canvas) {
       hitFlashT = 0.25;
     } else if (ev.type === 'pickup') {
       const lane = ev.lane !== undefined ? ev.lane : 1;
-      const p = project(laneX(lane), 0.5, 0);
+      const p = project(laneX(lane), 0.5, 0, lastCamX);
       if (ev.item === 'YABAI') {
         spawnFloatingScore('+100 YABAI!', p.sx, p.sy, true);
       } else {
@@ -119,6 +121,8 @@ export function createRenderer(canvas) {
   }
 
   function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60, brandLogo = null, isNewBest = false) {
+    const camX = cameraX(state.player.x);
+    lastCamX = camX;
     const delta = typeof dt === 'number' && dt > 0 ? dt : 1 / 60;
     animTime += delta;
     const activeLogo = brandLogo || defaultBrandLogo;
@@ -239,7 +243,7 @@ export function createRenderer(canvas) {
       if (!hasPropSprites) return;
       const f = sprites.props.data.frames[key];
       if (!f) return;
-      const p = project(x, y, z);
+      const p = project(x, y, z, camX);
       const k = p.scale / (sprites.props.data.pxPerMeter || 128);
       ctx.drawImage(
         sprites.props.img,
@@ -257,7 +261,7 @@ export function createRenderer(canvas) {
       if (item.kind === 'brandBoard') {
         const bCanvas = getBillboardCanvas();
         if (bCanvas) {
-          const p = project(item.x, 0, item.z);
+          const p = project(item.x, 0, item.z, camX);
           const k = p.scale / PROP_PX_PER_M;
           const w = bCanvas.width * k;
           const h = bCanvas.height * k;
@@ -269,7 +273,7 @@ export function createRenderer(canvas) {
           const key = sidePropFrameKey(item.propType, sideSign);
           drawPropSprite(key, item.x, 0, item.z);
         } else {
-          const p = project(item.x, 0, item.z);
+          const p = project(item.x, 0, item.z, camX);
           const k = p.scale / PROP_PX_PER_M;
           const c = item.propType === 'lamp' ? props.lamp : props.lanterns;
           const w = c.w * k;
@@ -279,7 +283,7 @@ export function createRenderer(canvas) {
       } else if (item.kind === 'obstacle') {
         const ox = laneX(item.lane);
         const oz = item.z;
-        const p = project(ox, 0, oz);
+        const p = project(ox, 0, oz, camX);
 
         if (hasPropSprites) {
           const key = propFrameKey(item);
@@ -336,7 +340,7 @@ export function createRenderer(canvas) {
         const iz = item.z;
 
         // Bóng nhỏ dưới đất
-        const pGnd = project(ix, 0, iz);
+        const pGnd = project(ix, 0, iz, camX);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
         ctx.beginPath();
         ctx.ellipse(pGnd.sx, pGnd.sy, 0.25 * pGnd.scale, 0.08 * pGnd.scale, 0, 0, Math.PI * 2);
@@ -345,7 +349,7 @@ export function createRenderer(canvas) {
         if (item.item === 'YABAI') {
           const tCanvas = getTokenCanvas();
           const iy = itemBottomY(state.time, iz);
-          const p = project(ix, iy, iz);
+          const p = project(ix, iy, iz, camX);
           const rScreen = 0.3 * p.scale; // YABAI_TOKEN_M = 0.6 m -> r = 0.3 m
           const cx = p.sx;
           const cy = p.sy - rScreen; // tâm huy hiệu
@@ -368,7 +372,7 @@ export function createRenderer(canvas) {
         } else {
           // Đồ nhặt lơ lửng fallback
           const iy = 0.5 + 0.08 * Math.sin(state.time * 4 + iz);
-          const p = project(ix, iy, iz);
+          const p = project(ix, iy, iz, camX);
           const k = p.scale / PROP_PX_PER_M;
 
           let c = props.onigiri;
@@ -382,7 +386,7 @@ export function createRenderer(canvas) {
         }
       } else if (item.kind === 'player') {
         // Bóng của Tèo
-        const pGnd = project(item.x, 0, 0);
+        const pGnd = project(item.x, 0, 0, camX);
         const alpha = 0.35 * (1 - Math.min(item.y / 1.2, 0.6));
         ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
         ctx.beginPath();
@@ -395,7 +399,7 @@ export function createRenderer(canvas) {
           const fIdx = frameIndex(aData.frames.length, anim.u, anim.loop);
           const fKey = aData.frames[fIdx];
           const f = sprites.teo.data.frames[fKey];
-          const p = project(item.x, item.y, 0);
+          const p = project(item.x, item.y, 0, camX);
           const k = spriteScale(p.scale);
           const [ax, ay] = sprites.teo.data.anchor;
           ctx.drawImage(sprites.teo.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
@@ -406,8 +410,8 @@ export function createRenderer(canvas) {
           // Khối màu dự phòng G00
           const py = item.y;
           const pHeight = item.sliding ? 0.9 : 1.8;
-          const pBot = project(item.x, py, 0);
-          const pTop = project(item.x, py + pHeight, 0);
+          const pBot = project(item.x, py, 0, camX);
+          const pTop = project(item.x, py + pHeight, 0, camX);
           const scale = pBot.scale;
           const w = 1.2 * scale;
           const h = pBot.sy - pTop.sy;
@@ -431,7 +435,7 @@ export function createRenderer(canvas) {
         }
       } else if (item.kind === 'police') {
         // Bóng của cảnh sát
-        const pGnd = project(item.x, 0, item.z);
+        const pGnd = project(item.x, 0, item.z, camX);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
         ctx.beginPath();
         ctx.ellipse(pGnd.sx, pGnd.sy, 0.45 * pGnd.scale, 0.16 * pGnd.scale, 0, 0, Math.PI * 2);
@@ -443,7 +447,7 @@ export function createRenderer(canvas) {
           const fIdx = frameIndex(aData.frames.length, anim.u, anim.loop);
           const fKey = aData.frames[fIdx];
           const f = sprites.police.data.frames[fKey];
-          const p = project(item.x, item.y, item.z);
+          const p = project(item.x, item.y, item.z, camX);
           const k = spriteScale(p.scale);
           const [ax, ay] = sprites.police.data.anchor;
           ctx.drawImage(sprites.police.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
@@ -452,8 +456,8 @@ export function createRenderer(canvas) {
           lastAnim.police.frame = fIdx;
         } else {
           // Khối màu dự phòng G00
-          const pBot = project(item.x, item.y, item.z);
-          const pTop = project(item.x, item.y + 1.8, item.z);
+          const pBot = project(item.x, item.y, item.z, camX);
+          const pTop = project(item.x, item.y + 1.8, item.z, camX);
           const scale = pBot.scale;
           const w = 1.5 * scale;
           const h = pBot.sy - pTop.sy;

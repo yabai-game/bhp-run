@@ -7,7 +7,7 @@ import {
   WALL_H,
   WIN_PERIOD
 } from './config.js';
-import { project } from './track.js';
+import { project, cameraX } from './track.js';
 import { createRng } from './rng.js';
 
 // Hàm băm số học thuần tuý tính màu sắc cửa sổ (ấm hay mờ)
@@ -104,6 +104,7 @@ export function createBackground() {
   ];
 
   function renderSkyAndBackground(ctx, state) {
+    const camX = cameraX(state.player.x);
     // 1. Nền trời gradient dọc
     const skyGrad = ctx.createLinearGradient(0, 0, 0, HORIZON_Y);
     skyGrad.addColorStop(0, '#120a2e');
@@ -118,10 +119,10 @@ export function createBackground() {
 
     // 3. Tường nhà đứng mỗi bên: x = ±WALL_X, y từ 0 -> WALL_H (7m), z từ 0 -> DRAW_DIST (120m)
     // Tường trái
-    const pL_bn = project(-WALL_X, 0, 0);
-    const pL_bf = project(-WALL_X, 0, DRAW_DIST);
-    const pL_tf = project(-WALL_X, WALL_H, DRAW_DIST);
-    const pL_tn = project(-WALL_X, WALL_H, 0);
+    const pL_bn = project(-WALL_X, 0, 0, camX);
+    const pL_bf = project(-WALL_X, 0, DRAW_DIST, camX);
+    const pL_tf = project(-WALL_X, WALL_H, DRAW_DIST, camX);
+    const pL_tn = project(-WALL_X, WALL_H, 0, camX);
 
     ctx.fillStyle = '#1c1640';
     ctx.beginPath();
@@ -133,10 +134,10 @@ export function createBackground() {
     ctx.fill();
 
     // Tường phải
-    const pR_bn = project(WALL_X, 0, 0);
-    const pR_bf = project(WALL_X, 0, DRAW_DIST);
-    const pR_tf = project(WALL_X, WALL_H, DRAW_DIST);
-    const pR_tn = project(WALL_X, WALL_H, 0);
+    const pR_bn = project(WALL_X, 0, 0, camX);
+    const pR_bf = project(WALL_X, 0, DRAW_DIST, camX);
+    const pR_tf = project(WALL_X, WALL_H, DRAW_DIST, camX);
+    const pR_tn = project(WALL_X, WALL_H, 0, camX);
 
     ctx.beginPath();
     ctx.moveTo(pR_bn.sx, pR_bn.sy);
@@ -172,10 +173,10 @@ export function createBackground() {
           const hVal = winHash(worldK, floorIdx, sideIdx);
           ctx.fillStyle = hVal < 0.3 ? 'rgba(255, 210, 122, 0.55)' : 'rgba(154, 208, 255, 0.10)';
 
-          const p_bn_win = project(wx, y1, clampZ1);
-          const p_bf_win = project(wx, y1, clampZ2);
-          const p_tf_win = project(wx, y2, clampZ2);
-          const p_tn_win = project(wx, y2, clampZ1);
+          const p_bn_win = project(wx, y1, clampZ1, camX);
+          const p_bf_win = project(wx, y1, clampZ2, camX);
+          const p_tf_win = project(wx, y2, clampZ2, camX);
+          const p_tn_win = project(wx, y2, clampZ1, camX);
 
           ctx.beginPath();
           ctx.moveTo(p_bn_win.sx, p_bn_win.sy);
@@ -192,10 +193,10 @@ export function createBackground() {
     const roadHalfWidth = 1.5 * LANE_WIDTH; // 3.75 m
 
     // Vỉa hè trái
-    const pL_sw_outer_near = project(-WALL_X, 0, -2);
-    const pL_sw_outer_far = project(-WALL_X, 0, DRAW_DIST);
-    const pL_sw_inner_far = project(-roadHalfWidth, 0, DRAW_DIST);
-    const pL_sw_inner_near = project(-roadHalfWidth, 0, -2);
+    const pL_sw_outer_near = project(-WALL_X, 0, -2, camX);
+    const pL_sw_outer_far = project(-WALL_X, 0, DRAW_DIST, camX);
+    const pL_sw_inner_far = project(-roadHalfWidth, 0, DRAW_DIST, camX);
+    const pL_sw_inner_near = project(-roadHalfWidth, 0, -2, camX);
 
     ctx.fillStyle = '#2b2540';
     ctx.beginPath();
@@ -207,10 +208,10 @@ export function createBackground() {
     ctx.fill();
 
     // Vỉa hè phải
-    const pR_sw_inner_near = project(roadHalfWidth, 0, -2);
-    const pR_sw_inner_far = project(roadHalfWidth, 0, DRAW_DIST);
-    const pR_sw_outer_far = project(WALL_X, 0, DRAW_DIST);
-    const pR_sw_outer_near = project(WALL_X, 0, -2);
+    const pR_sw_inner_near = project(roadHalfWidth, 0, -2, camX);
+    const pR_sw_inner_far = project(roadHalfWidth, 0, DRAW_DIST, camX);
+    const pR_sw_outer_far = project(WALL_X, 0, DRAW_DIST, camX);
+    const pR_sw_outer_near = project(WALL_X, 0, -2, camX);
 
     ctx.beginPath();
     ctx.moveTo(pR_sw_inner_near.sx, pR_sw_inner_near.sy);
@@ -221,10 +222,10 @@ export function createBackground() {
     ctx.fill();
 
     // 6. Mặt đường: nhựa #23232e
-    const pNearL = project(-roadHalfWidth, 0, -2);
-    const pNearR = project(roadHalfWidth, 0, -2);
-    const pFarR = project(roadHalfWidth, 0, DRAW_DIST);
-    const pFarL = project(-roadHalfWidth, 0, DRAW_DIST);
+    const pNearL = project(-roadHalfWidth, 0, -2, camX);
+    const pNearR = project(roadHalfWidth, 0, -2, camX);
+    const pFarR = project(roadHalfWidth, 0, DRAW_DIST, camX);
+    const pFarL = project(-roadHalfWidth, 0, DRAW_DIST, camX);
 
     ctx.fillStyle = '#23232e';
     ctx.beginPath();
@@ -261,8 +262,8 @@ export function createBackground() {
         const segZ1 = Math.max(0, z - phase);
         const segZ2 = Math.min(DRAW_DIST, segZ1 + dashLen);
         if (segZ2 > segZ1) {
-          const pt1 = project(lx, 0, segZ1);
-          const pt2 = project(lx, 0, segZ2);
+          const pt1 = project(lx, 0, segZ1, camX);
+          const pt2 = project(lx, 0, segZ2, camX);
           ctx.moveTo(pt1.sx, pt1.sy);
           ctx.lineTo(pt2.sx, pt2.sy);
         }
