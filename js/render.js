@@ -33,7 +33,7 @@ import {
   isTokenReady,
   isBillboardReady
 } from './brandart.js';
-import { HUD, CAUGHT, fitFontSize, formatScore, meterColor } from './hudlayout.js';
+import { HUD, CAUGHT, PAUSE, fitFontSize, formatScore, meterColor } from './hudlayout.js';
 import {
   outlinedText,
   pill,
@@ -227,7 +227,8 @@ export function createRenderer(canvas) {
     justUnlockedGa = false,
     unlockAll = false,
     flashCharSelectT = 0,
-    caughtSpritesParam = null
+    caughtSpritesParam = null,
+    paused = false
   ) {
     if (caughtSpritesParam) {
       caughtSprites = caughtSpritesParam;
@@ -932,6 +933,27 @@ export function createRenderer(canvas) {
       if (fps !== null && fps !== undefined) {
         const fpsY = (state.characterId === 'GA' || state.characterId === 'NO') ? 170 : 130;
         outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
+      }
+
+      // Nút tạm dừng ⏸ (cùng kiểu nút loa)
+      const pb = PAUSE.btn;
+      pill(ctx, pb.x, pb.y, pb.w, pb.h, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(pb.x + pb.w / 2 - 9, pb.y + 15, 6, pb.h - 30);
+      ctx.fillRect(pb.x + pb.w / 2 + 3, pb.y + 15, 6, pb.h - 30);
+
+      if (paused) {
+        ctx.fillStyle = 'rgba(8, 12, 34, 0.7)';
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        const pc = PAUSE.card;
+        card(ctx, pc.x, pc.y, pc.w, pc.h, '#22d3ee');
+        ribbon(ctx, 270, pc.y, 'TẠM DỪNG', 34, '#22d3ee', '#063040');
+        const r = PAUSE.resume;
+        button3d(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, r.h, 'TIẾP TỤC', 32, 1, true);
+        const rs = PAUSE.restart;
+        secondaryButton3d(ctx, rs.x + rs.w / 2, rs.y + rs.h / 2, rs.w, rs.h, 'CHƠI LẠI', 26);
+        const m = PAUSE.menu;
+        secondaryButton3d(ctx, m.x + m.w / 2, m.y + m.h / 2, m.w, m.h, 'MENU', 26);
       }
     }
 

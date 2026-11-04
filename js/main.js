@@ -5,7 +5,7 @@ import { createRenderer } from './render.js';
 import { createAccState, advance } from './loop.js';
 import { loadSprites, loadCaughtSprites } from './assets.js';
 import { initAudio, playEvent, startBgm, stopBgm, suspendAudio, resumeAudio } from './audio.js';
-import { HUD, CAUGHT, caughtTapAction } from './hudlayout.js';
+import { HUD, CAUGHT, caughtTapAction, pauseTapAction, isPauseButtonTap } from './hudlayout.js';
 import {
   CHARACTERS,
   CHARACTER_ORDER,
@@ -99,6 +99,9 @@ function init() {
   let selectedCharId = loadSelectedChar(bestScore, isUnlockAll);
   let lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
   const lobby = createLobby();
+  // Tạm dừng trong ván (nút ⏸ / Escape / tab bị ẩn); pendingStart = vào ván mới ở bước logic kế tiếp (CHƠI LẠI)
+  let paused = false;
+  let pendingStart = false;
 
   const gameOpts = {
     characterId: selectedCharId,
@@ -189,6 +192,7 @@ function init() {
 
   globalThis.__bprLobby = {
     get open() { return game.phase === 'ready'; },
+    get paused() { return paused; },
     get index() { return lobbyIndex; },
     get anim() { return lobby.getDebugState().anim; },
     get source() { return lobby.getDebugState().source; }
@@ -272,7 +276,7 @@ function init() {
 
     if (isPausedByRotate) {
       suspendAudio();
-    } else if (!document.hidden && game && game.phase === 'running') {
+    } else if (!document.hidden && game && game.phase === 'running' && !paused) {
       resumeAudio();
     }
 
@@ -309,10 +313,48 @@ function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       suspendAudio();
-    } else if (!isPausedByRotate && game.phase === 'running') {
+      // Rời tab giữa ván (nghe điện thoại, chuyển app) → quay lại thấy bảng tạm dừng thay vì chạy tiếp ngay
+      if (game.phase === 'running') paused = true;
+    } else if (!isPausedByRotate && game.phase === 'running' && !paused) {
       resumeAudio();
     }
   });
+
+  function backToReady() {
+    // Giữ kỷ lục của ván bỏ dở (điểm đã ghi được vẫn tính)
+    if (game.score > savedBestScore) {
+      savedBestScore = game.score;
+      saveBestScore(savedBestScore);
+    }
+    const nextSeed = Date.now() >>> 0;
+    game = createGame(nextSeed, 'ready', { ...gameOpts, characterId: selectedCharId });
+    if (isDebug) {
+      globalThis.__bpr = game;
+    }
+    isNewBest = false;
+    justUnlockedList = [];
+    lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
+    lobby.setIndex(lobbyIndex);
+  }
+
+  function handlePausedInput() {
+    const acts = input.pollActions();
+    const tps = input.pollTaps();
+    let act = null;
+    if (acts.includes('escape')) act = 'resume';
+    if (acts.includes('menu')) act = 'menu';
+    for (let i = 0; i < tps.length; i++) {
+      const a = pauseTapAction(tps[i].x, tps[i].y);
+      if (a) act = a;
+    }
+    if (!act) return;
+    paused = false;
+    resumeAudio();
+    if (act === 'resume') return;
+    stopBgm();
+    backToReady();
+    if (act === 'restart') pendingStart = true;
+  }
   fit();
 
   // Vòng lặp fixed timestep DT = 1/120 s với logic loop.js
@@ -350,6 +392,25 @@ function init() {
     }
     if (loading) {
       actions = actions.filter(a => a !== 'start');
+    }
+
+    // CHƠI LẠI từ bảng tạm dừng: vào ván mới với nhân vật đang chọn
+    if (pendingStart && game.phase === 'ready') {
+      pendingStart = false;
+      return ['start'];
+    }
+
+    // Trong ván: chạm nút ⏸ hoặc Escape → tạm dừng (không để cú chạm đó thành nhảy / thả đồ)
+    if (game.phase === 'running') {
+      let wantPause = actions.includes('escape');
+      for (let i = 0; i < taps.length; i++) {
+        if (isPauseButtonTap(taps[i].x, taps[i].y)) wantPause = true;
+      }
+      if (wantPause) {
+        paused = true;
+        suspendAudio();
+        return [];
+      }
     }
 
     // Màn chờ = sảnh nhân vật (chủ kênh 2026-11-04): ← → / vuốt / mũi tên đổi nhân vật,
@@ -498,7 +559,12 @@ function init() {
       return;
     }
 
-    advance(accState, frameTime, pollFn, stepFn, DT);
+    if (paused) {
+      handlePausedInput();
+      accState.accumulator = 0;
+    } else {
+      advance(accState, frameTime, pollFn, stepFn, DT);
+    }
 
     if (flashCharSelectT > 0) {
       flashCharSelectT = Math.max(0, flashCharSelectT - frameTime);
@@ -513,13 +579,14 @@ function init() {
       sprites,
       isDebug ? displayFps : null,
       loading,
-      frameTime,
+      paused ? 0 : frameTime,
       brandLogo,
       isNewBest,
       justUnlockedList,
       isUnlockAll,
       flashCharSelectT,
-      caughtLoader
+      caughtLoader,
+      paused
     );
 
     if (game.phase === 'ready') {

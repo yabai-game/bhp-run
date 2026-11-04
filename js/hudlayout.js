@@ -13,6 +13,32 @@ export const CAUGHT = {
   restartBtn: { x: 222, y: 748, w: 258, h: 76 }
 };
 
+// Tạm dừng trong ván (chủ kênh 2026-11-04): nút ⏸ dưới thanh cảnh sát + bảng TIẾP TỤC / CHƠI LẠI / MENU
+export const PAUSE = {
+  btn: { x: 476, y: 124, w: 52, h: 52 },
+  card: { x: 60, y: 290, w: 420, h: 390 },
+  resume: { x: 100, y: 372, w: 340, h: 80 },
+  restart: { x: 100, y: 476, w: 340, h: 72 },
+  menu: { x: 100, y: 568, w: 340, h: 72 }
+};
+
+function inBox(x, y, b) {
+  return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+}
+
+export function pauseTapAction(x, y) {
+  if (inBox(x, y, PAUSE.resume)) return 'resume';
+  if (inBox(x, y, PAUSE.restart)) return 'restart';
+  if (inBox(x, y, PAUSE.menu)) return 'menu';
+  return null;
+}
+
+export function isPauseButtonTap(x, y) {
+  // vùng chạm nới 8 px mỗi phía cho ngón tay
+  const b = PAUSE.btn;
+  return x >= b.x - 8 && x <= b.x + b.w + 8 && y >= b.y - 8 && y <= b.y + b.h + 8;
+}
+
 export function caughtTapAction(x, y) {
   const btn = CAUGHT.menuBtn;
   if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
