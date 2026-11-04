@@ -1,16 +1,16 @@
 export const QUIPS = [
-  'Tèo: «Em chỉ đi lạc tí thôi mà anh!»',
-  'Visa hết hạn từ lâu, giờ hết luôn đường chạy.',
-  'Dép lào không chống trượt. Tiếc ghê.',
-  'Lương chui chưa kịp gửi về quê.',
-  'Tóc moi đẹp vậy mà không cứu được.',
-  '— Vé tàu đâu? — Dạ… vé gì ạ?',
-  'Chạy nhanh vậy mà thẻ SUIKA vẫn hết tiền.',
-  'Onigiri còn ấm, người đã bị tóm.',
-  'Lần sau nhớ mua vé nha Tèo.',
-  'Cổng soát vé: 1 — Tèo: 0.',
-  'Tèo xin phép gọi về cho mẹ một cuộc.',
-  'Hôm nay không phải ngày của Tèo.'
+  'Chạy đến đâu cũng bị bế thôi — đừng làm BHP.',
+  'Chạy nhanh mấy cũng không nhanh bằng hết hạn visa.',
+  'Có chạy đằng trời cũng không thoát — đừng làm BHP.',
+  'Bị bế rồi mới thấy: làm đúng giấy tờ vẫn nhàn hơn.',
+  'Dép lào chạy không lại pháp luật đâu Tèo ơi.',
+  'Kỷ lục mới: chạy xa nhất… rồi vẫn bị bế.',
+  'Lương chui chưa kịp gửi về, Tèo đã được gửi về trước.',
+  'Đường chui nào rồi cũng có cảnh sát đứng cuối.',
+  'Muốn khỏi phải chạy thì đừng làm BHP.',
+  'Tèo: «Biết vậy em làm hợp pháp từ đầu.»',
+  'Trốn được hôm nay, không trốn được ngày mai.',
+  'Lời khuyên của Tèo: đi đúng đường, khỏi phải chạy.'
 ];
 
 export function quipFor(seed) {

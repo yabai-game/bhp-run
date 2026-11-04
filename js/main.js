@@ -43,13 +43,28 @@ function init() {
   let bestScore = savedBestScore;
   let seed = Date.now() >>> 0;
 
-  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand vào globalThis nếu có ?debug=1 để kiểm thử
+  // Gắn __bpr, __bprAnim, __bprSfx, __bprBrand, __bprDisclaimer vào globalThis nếu có ?debug=1 để kiểm thử
   const urlParams = new URLSearchParams(window.location.search);
   const isDebug = urlParams.get('debug') === '1';
+  const isNoDisclaimer = urlParams.get('nodisclaimer') === '1';
   const isYabaiDebug = isDebug && urlParams.get('yabai') === '1';
   const gameOpts = isYabaiDebug ? { forceItem: 'YABAI' } : {};
 
   let game = createGame(seed, 'ready', gameOpts);
+
+  const disclaimerEl = document.getElementById('disclaimer');
+  const disclaimerOkBtn = document.getElementById('disclaimer-ok');
+  let disclaimerOpen = true;
+  let justDismissedDisclaimer = false;
+
+  if (isNoDisclaimer && disclaimerEl) {
+    disclaimerEl.classList.add('hidden');
+    disclaimerOpen = false;
+  }
+
+  if (disclaimerOkBtn && disclaimerOpen) {
+    disclaimerOkBtn.focus();
+  }
 
   if (isDebug) {
     globalThis.__bpr = game;
@@ -70,12 +85,30 @@ function init() {
       tokenReady: false,
       skyline: false
     };
+    globalThis.__bprDisclaimer = {
+      get open() {
+        return disclaimerOpen;
+      }
+    };
   }
 
   initAudio();
 
   const input = createInput(canvas);
   const renderer = createRenderer(canvas);
+
+  if (disclaimerOkBtn) {
+    disclaimerOkBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (disclaimerEl) {
+        disclaimerEl.classList.add('hidden');
+      }
+      disclaimerOpen = false;
+      justDismissedDisclaimer = true;
+      input.pollActions();
+      resumeAudio();
+    });
+  }
 
   // Nạp logo thương hiệu YABAI nền trong suốt cho giao diện game
   let brandLogo = null;
@@ -177,6 +210,13 @@ function init() {
 
   const pollFn = () => {
     let actions = input.pollActions();
+    if (disclaimerOpen) {
+      return [];
+    }
+    if (justDismissedDisclaimer) {
+      justDismissedDisclaimer = false;
+      actions = actions.filter(a => a !== 'start');
+    }
     if (loading) {
       actions = actions.filter(a => a !== 'start');
     }

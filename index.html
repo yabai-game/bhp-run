@@ -17,6 +17,14 @@
 <body>
   <button id="mute" aria-label="Bật/Tắt âm thanh">🔊</button>
   <canvas id="game"></canvas>
+  <div id="disclaimer" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+    <div class="disclaimer-card">
+      <h2 id="disclaimer-title">Tuyên bố</h2>
+      <p>Game không dùng cho mục đích thương mại. Chỉ mang tính giáo dục với phương châm:</p>
+      <p class="disclaimer-motto">“Không nên suy nghĩ trở thành lao động BHP”</p>
+      <button id="disclaimer-ok" type="button">Tôi đã hiểu</button>
+    </div>
+  </div>
   <div id="rotate">Xoay dọc điện thoại để chơi</div>
   <script type="module" src="js/main.js"></script>
 </body>

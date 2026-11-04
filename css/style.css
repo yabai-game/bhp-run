@@ -91,3 +91,78 @@ body {
   z-index: 9999;
   padding: 24px;
 }
+
+#disclaimer {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(11, 21, 48, 0.94);
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) calc(env(safe-area-inset-right, 0px) + 16px) calc(env(safe-area-inset-bottom, 0px) + 16px) calc(env(safe-area-inset-left, 0px) + 16px);
+  touch-action: manipulation;
+  box-sizing: border-box;
+}
+
+#disclaimer.hidden {
+  display: none;
+}
+
+.disclaimer-card {
+  max-width: 420px;
+  width: 100%;
+  background-color: #0f1a3a;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  font-family: system-ui, -apple-system, sans-serif;
+  box-sizing: border-box;
+}
+
+.disclaimer-card h2 {
+  color: #fbbf24;
+  font-weight: bold;
+  font-size: 26px;
+  margin: 0 0 12px 0;
+}
+
+.disclaimer-card p {
+  color: #e2e8f0;
+  font-size: 18px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.disclaimer-card .disclaimer-motto {
+  color: #f472b6;
+  font-weight: bold;
+  font-style: italic;
+  font-size: 20px;
+  margin: 16px 0 24px 0;
+}
+
+#disclaimer-ok {
+  width: 100%;
+  min-height: 52px;
+  background-color: #22c55e;
+  color: #0b1530;
+  font-weight: bold;
+  font-size: 20px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  padding: 0 16px;
+  font-family: inherit;
+}
+
+#disclaimer-ok:active {
+  background-color: #16a34a;
+}
