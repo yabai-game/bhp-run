@@ -1,6 +1,12 @@
 export const CHARACTERS = {
-  TEO: { id: 'TEO', name: 'TÈO', desc: 'Nhân vật gốc', unlockBest: 0, carriesChicken: false },
-  GA: { id: 'GA', name: 'TRỘM GÀ', desc: 'Chạy chậm · gà vỗ cánh cứu 1 lần', unlockBest: 5000, carriesChicken: true }
+  TEO: {
+    id: 'TEO', name: 'TÈO', desc: 'Nhân vật gốc', unlockBest: 0, carriesChicken: false,
+    story: 'Ở VN là boy phố, sang Nhật lương về tay 10 lá chưa ăn. Túng quá bỏ ra ngoài làm BHP.'
+  },
+  GA: {
+    id: 'GA', name: 'TÍ', desc: 'Chạy chậm · gà vỗ cánh cứu 1 lần', unlockBest: 5000, carriesChicken: true,
+    story: 'Qua Nhật sáng đi làm, chiều tối về đi trộm gà của người dân. Bị cảnh sát phát hiện nên trốn ra làm BHP.'
+  }
 };
 
 export const CHARACTER_ORDER = ['TEO', 'GA'];

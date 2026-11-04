@@ -45,6 +45,8 @@ import {
 } from './ui.js';
 import { CHARACTERS, isUnlocked } from './characters.js';
 
+const STORY_TEXT_OPTS = { strokeW: 3, shadowDy: 2 };
+
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
   const props = createProps();
@@ -546,7 +548,7 @@ export function createRenderer(canvas) {
           ctx.font = `700 ${Math.max(16, Math.round(scale * 0.35))}px ${UI_FONT}`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(isGa ? 'TRỘM GÀ' : 'TÈO', pBot.sx, top + h / 2);
+          ctx.fillText(isGa ? CHARACTERS.GA.name : 'TÈO', pBot.sx, top + h / 2);
 
           if (isGa && chickenHeld) {
             const pChicken = project(item.x + 0.25, item.y + 1.15, 0.05, camX);
@@ -789,24 +791,47 @@ export function createRenderer(canvas) {
       }
 
       // Thẻ thông tin nhân vật
-      pill(ctx, HUD.charCard.x, HUD.charCard.y, HUD.charCard.w, HUD.charCard.h, 'rgba(11, 21, 48, 0.88)', cardBorder, 3);
+      card(ctx, HUD.charCard.x, HUD.charCard.y, HUD.charCard.w, HUD.charCard.h, cardBorder);
       if (unlocked) {
-        outlinedText(ctx, currentChar.name, 270, 484, 26, 800, '#ffffff');
-        outlinedText(ctx, currentChar.desc, 270, 512, 16, 600, '#cbd5e1');
+        outlinedText(ctx, currentChar.name, 270, 486, 26, 800, '#ffffff');
+        outlinedText(ctx, currentChar.desc, 270, 513, 16, 600, '#22d3ee');
       } else {
         ctx.font = `800 26px ${UI_FONT}`;
         const nameW = ctx.measureText(currentChar.name).width;
-        lockIcon(ctx, 270 - nameW / 2 - 16, 484, 20);
-        outlinedText(ctx, currentChar.name, 270 + 10, 484, 26, 800, '#ffffff');
-        outlinedText(ctx, 'Mở khoá: kỷ lục 5 000', 270, 512, 16, 600, '#fbbf24');
+        lockIcon(ctx, 270 - nameW / 2 - 16, 486, 20);
+        outlinedText(ctx, currentChar.name, 270 + 10, 486, 26, 800, '#ffffff');
+        outlinedText(ctx, 'Mở khoá: kỷ lục 5 000', 270, 513, 16, 600, '#fbbf24');
       }
 
-      // Nút điều hướng nhân vật: trái và phải
-      pill(ctx, 72 - 28, 496 - 28, 56, 56, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
-      arrowIcon(ctx, 72, 496, 16, 'left');
+      // Hoàn cảnh nhân vật (tối đa 4 dòng trong thẻ)
+      if (currentChar.story) {
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+        ctx.fillRect(HUD.charCard.x + 24, 529, HUD.charCard.w - 48, 1.5);
+        let storySize = 18;
+        ctx.font = `600 ${storySize}px ${UI_FONT}`;
+        let storyLines = wrapText(currentChar.story, HUD.charCard.w - 32, str => ctx.measureText(str).width);
+        if (storyLines.length > 4) {
+          storySize = 16;
+          ctx.font = `600 ${storySize}px ${UI_FONT}`;
+          storyLines = wrapText(currentChar.story, HUD.charCard.w - 32, str => ctx.measureText(str).width);
+        }
+        const lineH = storySize + 5;
+        const storyTop = 550;
+        for (let i = 0; i < storyLines.length && i < 4; i++) {
+          outlinedText(ctx, storyLines[i], 270, storyTop + i * lineH, storySize, 600, '#e2e8f0', STORY_TEXT_OPTS);
+        }
+      }
 
-      pill(ctx, 468 - 28, 496 - 28, 56, 56, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
-      arrowIcon(ctx, 468, 496, 16, 'right');
+      // Nút điều hướng nhân vật: trái và phải (cạnh dòng tên)
+      const prevCx = HUD.charPrev.x + HUD.charPrev.w / 2;
+      const prevCy = HUD.charPrev.y + HUD.charPrev.h / 2;
+      const nextCx = HUD.charNext.x + HUD.charNext.w / 2;
+      const nextCy = HUD.charNext.y + HUD.charNext.h / 2;
+      pill(ctx, HUD.charPrev.x, HUD.charPrev.y, HUD.charPrev.w, HUD.charPrev.h, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
+      arrowIcon(ctx, prevCx, prevCy, 16, 'left');
+
+      pill(ctx, HUD.charNext.x, HUD.charNext.y, HUD.charNext.w, HUD.charNext.h, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
+      arrowIcon(ctx, nextCx, nextCy, 16, 'right');
 
       const btnScale = reducedMotion ? 1 : (1 + 0.04 * Math.sin(animTime * 4));
       let btnLabel = 'CHẠM ĐỂ CHẠY';
@@ -819,9 +844,9 @@ export function createRenderer(canvas) {
         btnEnabled = false;
       }
 
-      button3d(ctx, 270, 584, 380, 84, btnLabel, 36, btnScale, btnEnabled);
+      button3d(ctx, 270, 676, 380, 84, btnLabel, 36, btnScale, btnEnabled);
 
-      const chipY = 676;
+      const chipY = 772;
       const chipR = 26;
       const chips = [
         { x: 170, kind: 'lr', label: 'Đổi làn' },
@@ -831,15 +856,15 @@ export function createRenderer(canvas) {
       for (const chip of chips) {
         pill(ctx, chip.x - chipR, chipY - chipR, chipR * 2, chipR * 2, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
         arrowIcon(ctx, chip.x, chipY, 15, chip.kind);
-        outlinedText(ctx, chip.label, chip.x, 728, 18, 700, '#cbd5e1');
+        outlinedText(ctx, chip.label, chip.x, 822, 18, 700, '#cbd5e1');
       }
 
-      outlinedText(ctx, 'Một game của', 270, 782, 18, 700, '#94a3b8');
+      outlinedText(ctx, 'Một game của', 270, 858, 18, 700, '#94a3b8');
       if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
         const logoW = 220;
         const logoH = logoW * (213 / 845);
         const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 798;
+        const logoY = 872;
         ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
       }
 
@@ -900,7 +925,7 @@ export function createRenderer(canvas) {
       outlinedText(ctx, scoreStr, 270, 488, scoreSize, 800, '#ffffff');
 
       if (justUnlockedGa) {
-        const unlockStr = 'MỞ KHOÁ: TRỘM GÀ!';
+        const unlockStr = `MỞ KHOÁ: ${CHARACTERS.GA.name}!`;
         ctx.font = `800 20px ${UI_FONT}`;
         const ubW = ctx.measureText(unlockStr).width + 48;
         const ubH = 40;
