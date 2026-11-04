@@ -3,8 +3,7 @@ export const HUD = {
   score: { x: 140, y: 10, w: 204, h: 60 },
   best: { x: 352, y: 14, w: 112, h: 52 },
   mute: { x: 476, y: 14, w: 52, h: 52 },
-  meter: { x: 16, y: 78, w: 512, h: 36 },
-  charButton: { x: 40, y: 456, w: 460, h: 128 }
+  meter: { x: 16, y: 78, w: 512, h: 36 }
 };
 
 export const CAUGHT = {

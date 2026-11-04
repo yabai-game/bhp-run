@@ -19,6 +19,7 @@ import {
   button3d,
   card,
   ribbon,
+  crown,
   lockIcon,
   arrowIcon,
   chickenIcon,
@@ -145,8 +146,13 @@ export function createLobby() {
     bestScore,
     unlockAll = false,
     isReducedMotion = false,
-    gameSprites = null
+    gameSprites = null,
+    opts = {}
   ) {
+    const loading = Boolean(opts && opts.loading);
+    const logo = opts && opts.logo;
+    // Nhân vật thu nhỏ quanh chân (270, 566) để chừa chỗ cho tiêu đề game phía trên
+    const S = 0.86;
     setIndex(lobbyIndex);
     const charId = CHARACTER_ORDER[lobbyIndex] || 'TEO';
     const charDef = CHARACTERS[charId];
@@ -156,7 +162,7 @@ export function createLobby() {
     // Nền tối phủ gần kín (trạng thái canvas có thể còn alpha / blend từ lượt vẽ trước)
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(8, 12, 34, 0.95)';
+    ctx.fillStyle = 'rgba(8, 12, 34, 0.84)';
     ctx.fillRect(0, 0, 540, 960);
 
     // Đèn sân khấu
@@ -202,7 +208,7 @@ export function createLobby() {
       const [ax, ay] = lobbyAtlas.data.anchor || [192, 500];
 
       // Nhân vật khoá vẫn hiện đủ màu (chủ kênh 2026-11-04), chỉ thêm huy hiệu ổ khoá
-      ctx.drawImage(lobbyAtlas.img, f.x, f.y, f.w, f.h, 270 - ax, 566 - ay, f.w, f.h);
+      ctx.drawImage(lobbyAtlas.img, f.x, f.y, f.w, f.h, 270 - ax * S, 566 - ay * S, f.w * S, f.h * S);
     } else {
       // Fallback: khung run_00 của atlas chạy phóng x2.2
       source = 'fallback';
@@ -218,7 +224,7 @@ export function createLobby() {
       if (runAtlas && runAtlas.data && runAtlas.img) {
         const f = runAtlas.data.frames['run_00'] || Object.values(runAtlas.data.frames)[0];
         const [ax, ay] = runAtlas.data.anchor || [128, 204];
-        const scale = 2.2;
+        const scale = 2.2 * S;
 
         ctx.drawImage(
           runAtlas.img,
@@ -227,9 +233,9 @@ export function createLobby() {
           f.w * scale, f.h * scale
         );
         if (charId === 'NO') {
-          cherryBoxIcon(ctx, 270 + 44, 566 - 150, 44);
+          cherryBoxIcon(ctx, 270 + 44 * S, 566 - 150 * S, 44 * S);
         } else if (charId === 'GA' && runAtlas === gameSprites?.teo) {
-          chickenIcon(ctx, 270 + 38, 566 - 176, 52, 0);
+          chickenIcon(ctx, 270 + 38 * S, 566 - 176 * S, 52 * S, 0);
         }
       }
     }
@@ -238,32 +244,38 @@ export function createLobby() {
     if (!unlocked) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(392, 196, 34, 0, Math.PI * 2);
+      ctx.arc(388, 250, 34, 0, Math.PI * 2);
       ctx.fillStyle = '#0f1a3a';
       ctx.fill();
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 4;
       ctx.stroke();
       ctx.restore();
-      lockIcon(ctx, 392, 198, 40);
+      lockIcon(ctx, 388, 252, 40);
     }
     lastSource = source;
 
-    // 5. Nút quay lại & Ribbon tiêu đề
-    const bcx = LOBBY.back.x + LOBBY.back.w / 2;
-    const bcy = LOBBY.back.y + LOBBY.back.h / 2;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(bcx, bcy, 26, 0, Math.PI * 2);
-    ctx.fillStyle = '#0f1a3a';
-    ctx.fill();
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    arrowIcon(ctx, bcx, bcy, 15, 'left');
-    ctx.restore();
-
-    ribbon(ctx, 270, 40, 'CHỌN NHÂN VẬT', 26, '#fbbf24', '#3b2603');
+    // 5. Đầu màn: kỷ lục (trái), logo YABAI (giữa), tiêu đề game — màn chờ chính là sảnh này
+    const bestStr = formatScore(bestScore);
+    ctx.font = `800 22px ${UI_FONT}`;
+    const recW = ctx.measureText(bestStr).width + 58;
+    pill(ctx, 16, 14, recW, 52, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
+    crown(ctx, 16 + 24, 40, 20, '#fbbf24');
+    outlinedText(ctx, bestStr, 16 + 44, 40, 22, 800, '#fbbf24', { align: 'left' });
+    if (logo && logo.complete && logo.naturalWidth > 0) {
+      const lw = 112;
+      const lh = lw * (logo.naturalHeight / logo.naturalWidth);
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(logo, 270 - lw / 2, 40 - lh / 2, lw, lh);
+      ctx.restore();
+    }
+    outlinedText(ctx, 'BHP Run', 270, 126, 76, 800, '#fde047', {
+      stroke: '#0b1530',
+      strokeW: 12,
+      shadow: '#db2777',
+      shadowDy: 7
+    });
 
     // 6. Nút chuyển trang trái/phải
     pill(ctx, LOBBY.prev.x, LOBBY.prev.y, LOBBY.prev.w, LOBBY.prev.h, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
@@ -285,7 +297,8 @@ export function createLobby() {
     }
 
     // 8. Thẻ thông tin
-    let cardBorder = isSelected ? '#22d3ee' : (unlocked ? '#f472b6' : '#64748b');
+    const charColor = charId === 'GA' ? '#f472b6' : (charId === 'NO' ? '#fbbf24' : '#22d3ee');
+    let cardBorder = unlocked ? charColor : '#64748b';
     card(ctx, LOBBY.card.x, LOBBY.card.y, LOBBY.card.w, LOBBY.card.h, cardBorder);
 
     // Tên nhân vật tâm y = 672
@@ -386,10 +399,14 @@ export function createLobby() {
     }
 
     // Nút chọn / Thanh tiến độ
-    if (isSelected) {
-      button3d(ctx, 270, 906, 380, 64, 'ĐANG CHỌN ✓', 24, 1, false, '#15803d');
-    } else if (unlocked) {
-      button3d(ctx, 270, 906, 380, 64, 'CHỌN ' + charDef.name, 24, 1, true);
+    if (unlocked) {
+      // Nút chạy: chọn nhân vật đang xem và vào ván luôn
+      const pulse = isReducedMotion ? 1 : (1 + 0.035 * Math.sin(animTimer * 4));
+      if (loading) {
+        button3d(ctx, 270, 906, 380, 64, 'ĐANG TẢI…', 26, 1, false);
+      } else {
+        button3d(ctx, 270, 906, 380, 64, 'CHẠY ĐI!', 30, pulse, true);
+      }
     } else {
       // Thanh tiến độ x 60..480 y 862 h 8 (nằm giữa ô hoàn cảnh và nút)
       pill(ctx, 60, 864, 420, 8, '#0f172a', '#334155', 1);

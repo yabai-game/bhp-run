@@ -97,7 +97,6 @@ function init() {
   const isYabaiDebug = isDebug && urlParams.get('yabai') === '1';
 
   let selectedCharId = loadSelectedChar(bestScore, isUnlockAll);
-  let lobbyOpen = false;
   let lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
   const lobby = createLobby();
 
@@ -116,7 +115,7 @@ function init() {
 
   function updateMuteVisibility() {
     if (!muteBtn) return;
-    if (disclaimerOpen || lobbyOpen) {
+    if (disclaimerOpen) {
       muteBtn.classList.add('hidden');
     } else {
       muteBtn.classList.remove('hidden');
@@ -189,7 +188,7 @@ function init() {
   }
 
   globalThis.__bprLobby = {
-    get open() { return lobbyOpen; },
+    get open() { return game.phase === 'ready'; },
     get index() { return lobbyIndex; },
     get anim() { return lobby.getDebugState().anim; },
     get source() { return lobby.getDebugState().source; }
@@ -353,89 +352,38 @@ function init() {
       actions = actions.filter(a => a !== 'start');
     }
 
-    // Nếu sảnh nhân vật đang mở: mọi tương tác chuyển cho sảnh, không thể bắt đầu ván
-    if (lobbyOpen) {
-      // Enter / Space (a 'start' with no tap) picks the character on show
-      const keySelect = actions.includes('start') && taps.length === 0;
-      actions = actions.filter(a => a !== 'start');
-      if (keySelect) {
-        const candidateId = CHARACTER_ORDER[lobbyIndex];
-        if (isUnlocked(candidateId, bestScore, isUnlockAll)) {
-          applyCharacterSelection(candidateId);
-          lobbyOpen = false;
-          updateMuteVisibility();
-          return [];
-        }
-      }
-
-      if (actions.includes('escape')) {
-        lobbyOpen = false;
-        updateMuteVisibility();
-      }
+    // Màn chờ = sảnh nhân vật (chủ kênh 2026-11-04): ← → / vuốt / mũi tên đổi nhân vật,
+    // nút CHẠY ĐI! (hoặc Enter / Space) chọn nhân vật đang xem và bắt đầu ván ngay
+    if (game.phase === 'ready') {
+      let startNow = actions.includes('start') && taps.length === 0;
       if (actions.includes('left')) {
         lobbyIndex = (lobbyIndex - 1 + CHARACTER_ORDER.length) % CHARACTER_ORDER.length;
         lobby.setIndex(lobbyIndex);
       }
-      if (actions.includes('right')) {
+      if (actions.includes('right') || actions.includes('char_next')) {
         lobbyIndex = (lobbyIndex + 1) % CHARACTER_ORDER.length;
         lobby.setIndex(lobbyIndex);
       }
-
       for (let i = 0; i < taps.length; i++) {
         const hit = lobbyHit(taps[i].x, taps[i].y);
-        if (hit === 'back') {
-          lobbyOpen = false;
-          updateMuteVisibility();
-        } else if (hit === 'prev') {
+        if (hit === 'prev') {
           lobbyIndex = (lobbyIndex - 1 + CHARACTER_ORDER.length) % CHARACTER_ORDER.length;
           lobby.setIndex(lobbyIndex);
         } else if (hit === 'next') {
           lobbyIndex = (lobbyIndex + 1) % CHARACTER_ORDER.length;
           lobby.setIndex(lobbyIndex);
         } else if (hit === 'select') {
-          const candidateId = CHARACTER_ORDER[lobbyIndex];
-          if (isUnlocked(candidateId, bestScore, isUnlockAll)) {
-            applyCharacterSelection(candidateId);
-            lobbyOpen = false;
-            updateMuteVisibility();
-          }
+          startNow = true;
         }
       }
-
+      if (startNow && !loading) {
+        const candidateId = CHARACTER_ORDER[lobbyIndex];
+        if (isUnlocked(candidateId, bestScore, isUnlockAll)) {
+          applyCharacterSelection(candidateId);
+          return ['start'];
+        }
+      }
       return [];
-    }
-
-    // Phím KeyC (char_next) mở lobby khi ở màn ready
-    if (game.phase === 'ready' && actions.includes('char_next')) {
-      lobbyOpen = true;
-      lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
-      lobby.setIndex(lobbyIndex);
-      lobby.ensureLoaded();
-      updateMuteVisibility();
-      actions = actions.filter(a => a !== 'char_next');
-    }
-
-    // Xử lý chạm trên màn hình chờ
-    if (game.phase === 'ready' && taps.length > 0) {
-      for (let i = 0; i < taps.length; i++) {
-        const tap = taps[i];
-        if (insideRect(tap.x, tap.y, HUD.charButton)) {
-          lobbyOpen = true;
-          lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
-          lobby.setIndex(lobbyIndex);
-          lobby.ensureLoaded();
-          updateMuteVisibility();
-          actions = actions.filter(a => a !== 'start');
-        }
-      }
-    }
-
-    // Nếu nhân vật đang chọn chưa mở -> không thể bắt đầu chạy
-    if (game.phase === 'ready') {
-      const charUnlocked = isUnlocked(selectedCharId, bestScore, isUnlockAll);
-      if (!charUnlocked) {
-        actions = actions.filter(a => a !== 'start');
-      }
     }
 
     // Xử lý ở màn bị tóm (caught)
@@ -467,6 +415,8 @@ function init() {
           }
           isNewBest = false;
           justUnlockedList = [];
+          lobbyIndex = Math.max(0, CHARACTER_ORDER.indexOf(selectedCharId));
+          lobby.setIndex(lobbyIndex);
           return [];
         }
 
@@ -527,7 +477,7 @@ function init() {
     // Quản lý BGM: chỉ chạy khi running, tab hiện và không xoay ngang
     if (game.phase === 'running' && !document.hidden && !isPausedByRotate) {
       startBgm(game.meter);
-    } else if (game.phase === 'ready' || lobbyOpen) {
+    } else if (game.phase === 'ready') {
       stopBgm();
     }
 
@@ -572,16 +522,10 @@ function init() {
       caughtLoader
     );
 
-    if (lobbyOpen) {
-      // The lobby covers the start screen completely
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#080c22';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.restore();
+    if (game.phase === 'ready') {
+      // Màn chờ là sảnh nhân vật, phủ lên phố đêm (phố vẫn lờ mờ phía sau)
       const isReduced = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      lobby.ensureLoaded();
       lobby.update(frameTime, isReduced);
       lobby.render(
         ctx,
@@ -590,7 +534,8 @@ function init() {
         bestScore,
         isUnlockAll,
         isReduced,
-        sprites
+        sprites,
+        { loading, logo: brandLogo }
       );
     }
 
