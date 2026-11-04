@@ -1,0 +1,145 @@
+{
+  "image": "props.webp",
+  "pxPerMeter": 128,
+  "note": "Static props rendered from Meshy models. anchor = ground point under the prop centre (frame px from top-left). Camera behind the runner, 38 deg down, orthographic, same as characters. Draw with scale = projScale / 128. lamp_left stands on the left kerb (arm points right, over the road), lamp_right on the right kerb.",
+  "sizesMeters": {
+    "gate": [
+      1.93,
+      1.1
+    ],
+    "barrier": [
+      2.3,
+      2.2
+    ],
+    "vending": [
+      1.22,
+      2.3
+    ],
+    "lamp": [
+      1.31,
+      4.0
+    ],
+    "lantern": [
+      1.0,
+      2.9
+    ],
+    "onigiri": [
+      0.56,
+      0.5
+    ],
+    "ticket": [
+      0.55,
+      0.4
+    ],
+    "suika": [
+      0.37,
+      0.5
+    ],
+    "salary": [
+      0.38,
+      0.5
+    ]
+  },
+  "frames": {
+    "lamp_left": {
+      "x": 182,
+      "y": 0,
+      "w": 180,
+      "h": 457,
+      "anchor": [
+        90.0,
+        430.2
+      ]
+    },
+    "lamp_right": {
+      "x": 0,
+      "y": 0,
+      "w": 180,
+      "h": 457,
+      "anchor": [
+        90.0,
+        430.2
+      ]
+    },
+    "vending": {
+      "x": 364,
+      "y": 0,
+      "w": 169,
+      "h": 334,
+      "anchor": [
+        84.5,
+        283.0
+      ]
+    },
+    "lantern": {
+      "x": 535,
+      "y": 0,
+      "w": 143,
+      "h": 313,
+      "anchor": [
+        71.5,
+        319.2
+      ]
+    },
+    "barrier": {
+      "x": 680,
+      "y": 0,
+      "w": 307,
+      "h": 303,
+      "anchor": [
+        153.5,
+        263.2
+      ]
+    },
+    "gate": {
+      "x": 0,
+      "y": 459,
+      "w": 260,
+      "h": 246,
+      "anchor": [
+        130.0,
+        178.9
+      ]
+    },
+    "onigiri": {
+      "x": 262,
+      "y": 459,
+      "w": 84,
+      "h": 88,
+      "anchor": [
+        42.0,
+        69.2
+      ]
+    },
+    "salary": {
+      "x": 348,
+      "y": 459,
+      "w": 61,
+      "h": 86,
+      "anchor": [
+        30.5,
+        68.5
+      ]
+    },
+    "suika": {
+      "x": 411,
+      "y": 459,
+      "w": 60,
+      "h": 71,
+      "anchor": [
+        30.0,
+        61.0
+      ]
+    },
+    "ticket": {
+      "x": 473,
+      "y": 459,
+      "w": 83,
+      "h": 56,
+      "anchor": [
+        41.5,
+        48.7
+      ]
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "image": "police.webp",
+  "frameSize": [
+    256,
+    256
+  ],
+  "anchor": [
+    128,
+    204
+  ],
+  "note": "anchor = point under the feet on the ground, frame pixels from top-left. Camera behind the runner, 38 deg down, orthographic. Same scale for every character.",
+  "frames": {
+    "run_00": {
+      "x": 0,
+      "y": 0,
+      "w": 256,
+      "h": 256
+    },
+    "run_01": {
+      "x": 256,
+      "y": 0,
+      "w": 256,
+      "h": 256
+    },
+    "run_02": {
+      "x": 512,
+      "y": 0,
+      "w": 256,
+      "h": 256
+    },
+    "run_03": {
+      "x": 768,
+      "y": 0,
+      "w": 256,
+      "h": 256
+    },
+    "run_04": {
+      "x": 1024,
+      "y": 0,
+      "w": 256,
+      "h": 256
+    },
+    "run_05": {
+      "x": 1280,
+      "y": 0,
+      "w": 256,
+      "h": 256
+    },
+    "run_06": {
+      "x": 0,
+      "y": 256,
+      "w": 256,
+      "h": 256
+    },
+    "run_07": {
+      "x": 256,
+      "y": 256,
+      "w": 256,
+      "h": 256
+    },
+    "run_08": {
+      "x": 512,
+      "y": 256,
+      "w": 256,
+      "h": 256
+    },
+    "run_09": {
+      "x": 768,
+      "y": 256,
+      "w": 256,
+      "h": 256
+    },
+    "run_10": {
+      "x": 1024,
+      "y": 256,
+      "w": 256,
+      "h": 256
+    },
+    "run_11": {
+      "x": 1280,
+      "y": 256,
+      "w": 256,
+      "h": 256
+    }
+  },
+  "animations": {
+    "run": {
+      "frames": [
+        "run_00",
+        "run_01",
+        "run_02",
+        "run_03",
+        "run_04",
+        "run_05",
+        "run_06",
+        "run_07",
+        "run_08",
+        "run_09",
+        "run_10",
+        "run_11"
+      ],
+      "loop": true,
+      "duration": 0.667
+    }
+  }
+}
