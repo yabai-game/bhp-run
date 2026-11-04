@@ -4,7 +4,9 @@ import {
   DRAW_DIST,
   PROP_PX_PER_M,
   ITEM_TYPES,
-  UI_FONT
+  UI_FONT,
+  HINT_TIME,
+  HINT_FADE
 } from './config.js';
 import { project, laneX, cameraX } from './track.js';
 import {
@@ -899,6 +901,31 @@ export function createRenderer(canvas) {
         }
         cherryBoxIcon(ctx, 40, 136, 26);
         outlinedText(ctx, state.cherry.lifeReady ? '+1' : '+0', 66, 136, 22, 800, '#ffffff', { align: 'left' });
+        ctx.restore();
+      }
+
+      // Gợi ý điều khiển đầu ván (thay cho các chip ở màn chờ cũ), trong đoạn đường không có chướng ngại
+      if (state.time < HINT_TIME) {
+        const hintA = state.time < HINT_TIME - HINT_FADE ? 1 : Math.max(0, (HINT_TIME - state.time) / HINT_FADE);
+        const dropText = state.characterId === 'GA' ? 'Chạm 2 lần: thả gà' : (state.characterId === 'NO' ? 'Chạm 2 lần: thả hộp' : null);
+        const hintH = dropText ? 176 : 146;
+        ctx.save();
+        ctx.globalAlpha = 0.92 * hintA;
+        card(ctx, 80, 440, 380, hintH, '#22d3ee');
+        outlinedText(ctx, 'VUỐT ĐỂ ĐIỀU KHIỂN', 270, 468, 18, 800, '#fde047');
+        const hintChips = [
+          { x: 170, kind: 'lr', label: 'Đổi làn' },
+          { x: 270, kind: 'up', label: 'Nhảy' },
+          { x: 370, kind: 'down', label: 'Trượt' }
+        ];
+        for (const chip of hintChips) {
+          pill(ctx, chip.x - 24, 512 - 24, 48, 48, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
+          arrowIcon(ctx, chip.x, 512, 14, chip.kind);
+          outlinedText(ctx, chip.label, chip.x, 558, 17, 700, '#e2e8f0');
+        }
+        if (dropText) {
+          outlinedText(ctx, dropText, 270, 592, 17, 700, '#fbbf24');
+        }
         ctx.restore();
       }
 
