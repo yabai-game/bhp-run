@@ -8,7 +8,7 @@
     128,
     204
   ],
-  "note": "Nở. Same camera/scale as teo.json. Animations without suffix hold the cherry box; *_free = box gone.",
+  "note": "Nở. Same camera/scale as teo.json. Animations without suffix hold the cherry box; *_free = box gone. Grip: prop parented to the right hand, fingers curled (2026-11-04).",
   "animations": {
     "run": {
       "frames": [
