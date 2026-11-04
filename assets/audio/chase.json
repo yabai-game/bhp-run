@@ -1,0 +1,9 @@
+{
+  "file": "chase.mp3",
+  "title": "Iron and Ink",
+  "source": "Gemini (Lyria 3), generated 2026-11-04, instrumental",
+  "bpm": 149.8,
+  "loopStart": 0.5,
+  "loopEnd": 58.099977,
+  "note": "Play with AudioBufferSourceNode loop=true, loopStart/loopEnd in seconds. Audio before loopStart is the natural lead-in; audio after loopEnd repeats the loop head, so encoder delay does not break the seam."
+}

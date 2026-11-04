@@ -1,4 +1,4 @@
-const APP_VERSION = 'g02b';
+const APP_VERSION = 'g04';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
@@ -17,6 +17,7 @@ const ASSETS = [
   './js/input.js',
   './js/loop.js',
   './js/main.js',
+  './js/music.js',
   './js/player.js',
   './js/props.js',
   './js/quips.js',
@@ -33,7 +34,10 @@ const ASSETS = [
   './assets/icons/apple-touch-icon.png',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
-  './assets/icons/icon-maskable-512.png'
+  './assets/icons/icon-maskable-512.png',
+  './assets/audio/chase.json',
+  './assets/audio/chase.mp3',
+  './assets/brand/yabai_logo_white.png'
 ];
 
 self.addEventListener('install', (event) => {

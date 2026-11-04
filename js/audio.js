@@ -1,5 +1,19 @@
-import { SFX_VOL, BGM_VOL } from './config.js';
+import {
+  SFX_VOL,
+  BGM_VOL,
+  MUSIC_FILE_VOL,
+  SIREN_VOL,
+  MUSIC_LP_NORMAL,
+  MUSIC_LP_TENSE,
+  MUSIC_LP_TRANSITION,
+  MUSIC_STUMBLE_VOL_MUL,
+  MUSIC_STUMBLE_DROP_TIME,
+  MUSIC_STUMBLE_RECOVER_TIME,
+  MUSIC_CAUGHT_FADE_TIME,
+  MUSIC_CROSSFADE_TIME
+} from './config.js';
 import { createRng } from './rng.js';
+import { levelFor, sirenNoteAt, loopRegion } from './music.js';
 
 let audioCtx = null;
 let masterGain = null;
@@ -25,11 +39,40 @@ for (let i = 0; i < 64; i++) {
   }
 }
 
-// BGM scheduler state
+// Procedural BGM scheduler state
 let bgmIntervalId = null;
 let nextNoteTime = 0;
 let currentStep = 0;
-let isBgmPlaying = false;
+let proceduralGain = null;
+
+// Chase music file state
+let chaseMeta = null;
+let chaseAudioBuffer = null;
+let isAudioDecoded = false;
+let isAudioLoading = false;
+let fileLoadFailed = false;
+
+// Active file music playback state
+let musicSourceNode = null;
+let musicFilter = null;
+let musicGain = null;
+let musicSource = 'none'; // 'file' | 'procedural' | 'none'
+let isBgmActive = false;
+let currentMeter = 0;
+let currentLevel = 0; // 0 (< 70) | 1 (>= 70)
+let fileStartTime = 0;
+let sirenIntervalId = null;
+let nextHalfBarIndex = 0;
+let caughtFadeTimeoutId = null;
+
+function updateDebugMusic() {
+  if (typeof globalThis !== 'undefined' && globalThis.__bprMusic) {
+    globalThis.__bprMusic.source = musicSource;
+    globalThis.__bprMusic.level = currentLevel;
+    globalThis.__bprMusic.bpm = chaseMeta ? chaseMeta.bpm : 149.8;
+    globalThis.__bprMusic.decoded = isAudioDecoded;
+  }
+}
 
 function getAudioContext() {
   if (!audioCtx && typeof window !== 'undefined') {
@@ -65,6 +108,20 @@ function unlockAudio() {
   }
 }
 
+export function suspendAudio() {
+  const ctx = getAudioContext();
+  if (ctx && ctx.state === 'running') {
+    ctx.suspend().catch(() => {});
+  }
+}
+
+export function resumeAudio() {
+  const ctx = getAudioContext();
+  if (ctx && ctx.state === 'suspended' && unlocked) {
+    ctx.resume().catch(() => {});
+  }
+}
+
 function getNoiseBuffer(ctx) {
   if (!noiseBuffer) {
     const bufferSize = ctx.sampleRate;
@@ -75,6 +132,66 @@ function getNoiseBuffer(ctx) {
     }
   }
   return noiseBuffer;
+}
+
+export function loadMusicFile() {
+  if (typeof window === 'undefined') return;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('nomusicfile') === '1') {
+    fileLoadFailed = true;
+    isAudioDecoded = false;
+    updateDebugMusic();
+    return;
+  }
+
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  isAudioLoading = true;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  fetch('assets/audio/chase.json', { signal: controller.signal })
+    .then(res => {
+      if (!res.ok) throw new Error('Fetch chase.json failed: ' + res.status);
+      return res.json();
+    })
+    .then(json => {
+      const dur = loopRegion(json);
+      if (dur === null) throw new Error('Invalid chase.json loop region');
+      chaseMeta = json;
+      const audioFileName = json.file || 'chase.mp3';
+      return fetch('assets/audio/' + audioFileName, { signal: controller.signal });
+    })
+    .then(res => {
+      if (!res.ok) throw new Error('Fetch audio file failed: ' + res.status);
+      return res.arrayBuffer();
+    })
+    .then(arrayBuffer => {
+      clearTimeout(timeoutId);
+      return ctx.decodeAudioData(arrayBuffer);
+    })
+    .then(audioBuffer => {
+      chaseAudioBuffer = audioBuffer;
+      isAudioDecoded = true;
+      isAudioLoading = false;
+      updateDebugMusic();
+
+      // Nếu đang phát procedural fallback giữa ván -> chuyển chéo sang file ở đầu ô nhịp kế tiếp
+      if (isBgmActive && musicSource === 'procedural') {
+        triggerCrossfadeToFile();
+      }
+    })
+    .catch(() => {
+      clearTimeout(timeoutId);
+      isAudioLoading = false;
+      fileLoadFailed = true;
+      chaseAudioBuffer = null;
+      chaseMeta = null;
+      isAudioDecoded = false;
+      updateDebugMusic();
+    });
 }
 
 export function initAudio() {
@@ -111,6 +228,7 @@ export function initAudio() {
   }
 
   getAudioContext();
+  loadMusicFile();
 }
 
 export function toggleMute() {
@@ -137,9 +255,10 @@ export function isAudioMuted() {
   return isMuted;
 }
 
-// BGM Scheduler: 120 BPM -> 1 beat = 0.5 s, 1 step (1/8 note) = 0.25 s
+// BGM Scheduler (G02 procedural synth): 120 BPM -> 1 beat = 0.5 s, 1 step (1/8 note) = 0.25 s
 function scheduleBgmStep(step, time) {
   if (!audioCtx) return;
+  const targetGain = proceduralGain || bgmGain;
 
   const noteFreq = melodySteps[step];
   if (noteFreq > 0) {
@@ -154,7 +273,7 @@ function scheduleBgmStep(step, time) {
     noteGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.22);
 
     osc.connect(noteGain);
-    noteGain.connect(bgmGain);
+    noteGain.connect(targetGain);
 
     osc.start(time);
     osc.stop(time + 0.24);
@@ -176,7 +295,7 @@ function scheduleBgmStep(step, time) {
     bassNoteGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.45);
 
     bassOsc.connect(bassNoteGain);
-    bassNoteGain.connect(bgmGain);
+    bassNoteGain.connect(targetGain);
 
     bassOsc.start(time);
     bassOsc.stop(time + 0.48);
@@ -184,7 +303,7 @@ function scheduleBgmStep(step, time) {
 }
 
 function bgmScheduler() {
-  if (!audioCtx || !isBgmPlaying) return;
+  if (!audioCtx || musicSource !== 'procedural' || !isBgmActive) return;
   const lookahead = 0.1;
   while (nextNoteTime < audioCtx.currentTime + lookahead) {
     scheduleBgmStep(currentStep, nextNoteTime);
@@ -193,23 +312,267 @@ function bgmScheduler() {
   }
 }
 
-export function startBgm() {
+function startProceduralMusic() {
   const ctx = getAudioContext();
-  if (!ctx || isBgmPlaying) return;
-  isBgmPlaying = true;
+  if (!ctx) return;
+
+  stopProceduralMusic();
+
+  proceduralGain = ctx.createGain();
+  proceduralGain.gain.setValueAtTime(1.0, ctx.currentTime);
+  proceduralGain.connect(bgmGain);
+
+  musicSource = 'procedural';
+  currentLevel = 0;
   nextNoteTime = ctx.currentTime + 0.05;
   currentStep = 0;
+
   if (!bgmIntervalId) {
     bgmIntervalId = setInterval(bgmScheduler, 25);
   }
+  updateDebugMusic();
 }
 
-export function stopBgm() {
-  isBgmPlaying = false;
+function stopProceduralMusic() {
   if (bgmIntervalId) {
     clearInterval(bgmIntervalId);
     bgmIntervalId = null;
   }
+  if (proceduralGain) {
+    try {
+      proceduralGain.disconnect();
+    } catch {}
+    proceduralGain = null;
+  }
+}
+
+function startFileMusic(startTime = null, initialGain = MUSIC_FILE_VOL) {
+  const ctx = getAudioContext();
+  if (!ctx || !chaseAudioBuffer || !chaseMeta) return;
+
+  stopFileMusicNode();
+
+  const now = ctx.currentTime;
+  const tStart = startTime !== null ? startTime : now;
+  fileStartTime = tStart;
+
+  musicSourceNode = ctx.createBufferSource();
+  musicSourceNode.buffer = chaseAudioBuffer;
+  musicSourceNode.loop = true;
+  musicSourceNode.loopStart = chaseMeta.loopStart;
+  musicSourceNode.loopEnd = chaseMeta.loopEnd;
+
+  musicFilter = ctx.createBiquadFilter();
+  musicFilter.type = 'lowpass';
+  currentLevel = levelFor(currentMeter);
+  const filterFreq = currentLevel === 1 ? MUSIC_LP_TENSE : MUSIC_LP_NORMAL;
+  musicFilter.frequency.setValueAtTime(filterFreq, tStart);
+
+  musicGain = ctx.createGain();
+  musicGain.gain.setValueAtTime(initialGain, tStart);
+
+  musicSourceNode.connect(musicFilter);
+  musicFilter.connect(musicGain);
+  musicGain.connect(bgmGain);
+
+  musicSourceNode.start(tStart, chaseMeta.loopStart);
+  musicSource = 'file';
+
+  startSirenScheduler(tStart, chaseMeta.bpm);
+  updateDebugMusic();
+}
+
+function stopFileMusicNode() {
+  stopSirenScheduler();
+  if (musicSourceNode) {
+    try {
+      musicSourceNode.stop();
+      musicSourceNode.disconnect();
+    } catch {}
+    musicSourceNode = null;
+  }
+  if (musicFilter) {
+    try {
+      musicFilter.disconnect();
+    } catch {}
+    musicFilter = null;
+  }
+  if (musicGain) {
+    try {
+      musicGain.disconnect();
+    } catch {}
+    musicGain = null;
+  }
+}
+
+function triggerCrossfadeToFile() {
+  const ctx = getAudioContext();
+  if (!ctx || !isAudioDecoded || !isBgmActive || musicSource !== 'procedural') return;
+
+  // Tính đầu ô nhịp kế tiếp của nhạc tự sinh (mỗi ô = 8 bước = 2.0 s)
+  const stepsUntilNextBar = (8 - (currentStep % 8)) % 8;
+  const crossfadeStartTime = Math.max(ctx.currentTime + 0.02, nextNoteTime + stepsUntilNextBar * 0.25);
+  const crossfadeEndTime = crossfadeStartTime + MUSIC_CROSSFADE_TIME;
+
+  // Bắt đầu file music tại crossfadeStartTime với gain = 0
+  startFileMusic(crossfadeStartTime, 0.0001);
+
+  if (musicGain) {
+    musicGain.gain.setValueAtTime(0.0001, crossfadeStartTime);
+    musicGain.gain.linearRampToValueAtTime(MUSIC_FILE_VOL, crossfadeEndTime);
+  }
+
+  if (proceduralGain) {
+    proceduralGain.gain.setValueAtTime(proceduralGain.gain.value, crossfadeStartTime);
+    proceduralGain.gain.linearRampToValueAtTime(0.0001, crossfadeEndTime);
+  }
+
+  setTimeout(() => {
+    if (musicSource === 'file') {
+      stopProceduralMusic();
+    }
+  }, Math.max(10, Math.round((crossfadeEndTime - ctx.currentTime) * 1000)));
+}
+
+function scheduleSirenPulse(T, index, halfBarDur) {
+  if (!audioCtx || !bgmGain) return;
+  const freq = sirenNoteAt(index);
+  const dur = 0.9 * halfBarDur;
+
+  const osc1 = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
+  const lfo = audioCtx.createOscillator();
+  const lfoGain = audioCtx.createGain();
+  const filter = audioCtx.createBiquadFilter();
+  const noteGain = audioCtx.createGain();
+
+  osc1.type = 'sawtooth';
+  osc1.frequency.setValueAtTime(freq, T);
+  osc1.detune.setValueAtTime(-6, T);
+
+  osc2.type = 'sawtooth';
+  osc2.frequency.setValueAtTime(freq, T);
+  osc2.detune.setValueAtTime(6, T);
+
+  // Vibrato 6 Hz, +/-10 cent
+  lfo.type = 'sine';
+  lfo.frequency.setValueAtTime(6, T);
+  lfoGain.gain.setValueAtTime(10, T);
+
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc1.detune);
+  lfoGain.connect(osc2.detune);
+
+  // Lowpass 2500 Hz
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(2500, T);
+
+  // Envelope: attack 0.02s to SIREN_VOL = 0.07, hold, decay at end
+  noteGain.gain.setValueAtTime(0.0001, T);
+  noteGain.gain.linearRampToValueAtTime(SIREN_VOL, T + 0.02);
+  noteGain.gain.setValueAtTime(SIREN_VOL, Math.max(T + 0.02, T + dur - 0.05));
+  noteGain.gain.linearRampToValueAtTime(0.0001, T + dur);
+
+  osc1.connect(filter);
+  osc2.connect(filter);
+  filter.connect(noteGain);
+  noteGain.connect(bgmGain);
+
+  osc1.start(T);
+  osc2.start(T);
+  lfo.start(T);
+
+  osc1.stop(T + dur);
+  osc2.stop(T + dur);
+  lfo.stop(T + dur);
+}
+
+function startSirenScheduler(t0, bpm) {
+  stopSirenScheduler();
+
+  const barDur = 240 / bpm;
+  const halfBarDur = barDur / 2;
+  nextHalfBarIndex = 0;
+
+  sirenIntervalId = setInterval(() => {
+    if (!audioCtx || musicSource !== 'file' || !isBgmActive) return;
+
+    const lookahead = 0.1;
+    const now = audioCtx.currentTime;
+
+    while ((t0 + nextHalfBarIndex * halfBarDur) < now + lookahead) {
+      const halfBarTime = t0 + nextHalfBarIndex * halfBarDur;
+
+      // Đổi cấp độ chỉ ở đầu mỗi ô nhịp (chỉ số chẵn)
+      if (nextHalfBarIndex % 2 === 0) {
+        const newLevel = levelFor(currentMeter);
+        if (newLevel !== currentLevel) {
+          currentLevel = newLevel;
+          if (musicFilter) {
+            const targetFreq = currentLevel === 1 ? MUSIC_LP_TENSE : MUSIC_LP_NORMAL;
+            musicFilter.frequency.setTargetAtTime(targetFreq, halfBarTime, MUSIC_LP_TRANSITION);
+          }
+          updateDebugMusic();
+        }
+      }
+
+      // Phát tiếng hú nếu ở level 1
+      if (currentLevel === 1 && halfBarTime >= now - 0.05) {
+        scheduleSirenPulse(halfBarTime, nextHalfBarIndex, halfBarDur);
+      }
+
+      nextHalfBarIndex++;
+    }
+  }, 25);
+}
+
+function stopSirenScheduler() {
+  if (sirenIntervalId) {
+    clearInterval(sirenIntervalId);
+    sirenIntervalId = null;
+  }
+}
+
+export function startBgm(meter = 0) {
+  currentMeter = meter;
+  if (caughtFadeTimeoutId) {
+    clearTimeout(caughtFadeTimeoutId);
+    caughtFadeTimeoutId = null;
+  }
+
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  if (isBgmActive) {
+    return;
+  }
+
+  isBgmActive = true;
+
+  if (isAudioDecoded && chaseAudioBuffer && chaseMeta) {
+    startFileMusic(null, MUSIC_FILE_VOL);
+  } else {
+    startProceduralMusic();
+  }
+}
+
+export function stopBgm(immediate = false) {
+  if (!isBgmActive && musicSource === 'none') return;
+  stopAllMusicImmediately();
+}
+
+function stopAllMusicImmediately() {
+  if (caughtFadeTimeoutId) {
+    clearTimeout(caughtFadeTimeoutId);
+    caughtFadeTimeoutId = null;
+  }
+  isBgmActive = false;
+  stopFileMusicNode();
+  stopProceduralMusic();
+  stopSirenScheduler();
+  musicSource = 'none';
+  currentLevel = 0;
+  updateDebugMusic();
 }
 
 export function playEvent(ev) {
@@ -294,7 +657,6 @@ export function playEvent(ev) {
     osc.start(now);
     osc.stop(now + 0.03);
   } else if (ev.type === 'pickup') {
-    // 2 nốt sine nối nhau 0.07 s mỗi nốt: TICKET 880→1320, ONIGIRI 660→990, SUIKA 990→1480; SALARY 3 nốt 784→988→1319
     let freqs = [880, 1320];
     if (ev.item === 'ONIGIRI') freqs = [660, 990];
     else if (ev.item === 'SUIKA') freqs = [990, 1480];
@@ -318,7 +680,20 @@ export function playEvent(ev) {
       osc.stop(noteStart + 0.07);
     }
   } else if (ev.type === 'hit') {
-    // Sine 110 Hz → 60 Hz 0.25 s + nhiễu ngắn 0.08 s
+    // Stumble choke: "hụt hơi" — musicGain về 35% trong 0,08 s, lên lại trong 0,35 s
+    if (musicGain && musicSource === 'file') {
+      musicGain.gain.cancelScheduledValues(now);
+      musicGain.gain.setValueAtTime(musicGain.gain.value, now);
+      musicGain.gain.linearRampToValueAtTime(MUSIC_FILE_VOL * MUSIC_STUMBLE_VOL_MUL, now + MUSIC_STUMBLE_DROP_TIME);
+      musicGain.gain.linearRampToValueAtTime(MUSIC_FILE_VOL, now + MUSIC_STUMBLE_DROP_TIME + MUSIC_STUMBLE_RECOVER_TIME);
+    } else if (proceduralGain && musicSource === 'procedural') {
+      proceduralGain.gain.cancelScheduledValues(now);
+      proceduralGain.gain.setValueAtTime(proceduralGain.gain.value, now);
+      proceduralGain.gain.linearRampToValueAtTime(MUSIC_STUMBLE_VOL_MUL, now + MUSIC_STUMBLE_DROP_TIME);
+      proceduralGain.gain.linearRampToValueAtTime(1.0, now + MUSIC_STUMBLE_DROP_TIME + MUSIC_STUMBLE_RECOVER_TIME);
+    }
+
+    // Hit SFX: Sine 110 Hz → 60 Hz 0.25 s + nhiễu ngắn 0.08 s
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
     osc.type = 'sine';
@@ -354,6 +729,24 @@ export function playEvent(ev) {
     noiseSrc.start(now);
     noiseSrc.stop(now + 0.08);
   } else if (ev.type === 'caught') {
+    // Tắt dần nhạc nền: hạ musicGain về 0 trong 0,3 s rồi stop()
+    if (musicGain) {
+      musicGain.gain.cancelScheduledValues(now);
+      musicGain.gain.setValueAtTime(musicGain.gain.value, now);
+      musicGain.gain.linearRampToValueAtTime(0.0001, now + MUSIC_CAUGHT_FADE_TIME);
+    }
+    if (proceduralGain) {
+      proceduralGain.gain.cancelScheduledValues(now);
+      proceduralGain.gain.setValueAtTime(proceduralGain.gain.value, now);
+      proceduralGain.gain.linearRampToValueAtTime(0.0001, now + MUSIC_CAUGHT_FADE_TIME);
+    }
+
+    stopSirenScheduler();
+
+    caughtFadeTimeoutId = setTimeout(() => {
+      stopAllMusicImmediately();
+    }, MUSIC_CAUGHT_FADE_TIME * 1000);
+
     // Còi cảnh sát: 2 hồi sine 2800 Hz có rung tần số (LFO 30 Hz, ±150 Hz), mỗi hồi 0.18 s cách 0.08 s; rồi 3 nốt đi xuống 523→392→262
     const playSirenPulse = (startTime) => {
       const carrier = ctx.createOscillator();
@@ -387,7 +780,6 @@ export function playEvent(ev) {
     playSirenPulse(now);
     playSirenPulse(now + 0.26);
 
-    // 3 nốt đi xuống 523 → 392 → 262 sau còi
     const caughtNotes = [523, 392, 262];
     const notesStart = now + 0.48;
     for (let i = 0; i < caughtNotes.length; i++) {

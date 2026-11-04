@@ -76,7 +76,13 @@ export function createRenderer(canvas) {
     }
   }
 
-  function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60) {
+  let defaultBrandLogo = null;
+  function setBrandLogo(img) {
+    defaultBrandLogo = img;
+  }
+
+  function render(state, bestScore = 0, sprites = null, fps = null, loading = false, dt = 1 / 60, brandLogo = null) {
+    const activeLogo = brandLogo || defaultBrandLogo;
     // Kích hoạt làm mịn ảnh chất lượng cao
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -503,6 +509,18 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '18px system-ui, sans-serif';
       ctx.fillText('Vuốt ← → đổi làn · ↑ nhảy · ↓ trượt', 270, 600);
+
+      if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 18px system-ui, sans-serif';
+        ctx.fillText('Một game của', 270, 690);
+
+        const logoW = 240;
+        const logoH = logoW * (213 / 845);
+        const logoX = (VIEW_W - logoW) / 2;
+        const logoY = 706;
+        ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
+      }
     } else if (state.phase === 'caught') {
       ctx.fillStyle = 'rgba(11, 21, 48, 0.88)';
       ctx.fillRect(0, 140, VIEW_W, VIEW_H - 140);
@@ -542,6 +560,17 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#38bdf8';
       ctx.font = 'bold 28px system-ui, sans-serif';
       ctx.fillText('Chạm để chạy lại', 270, 625);
+
+      if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
+        const prevAlpha = ctx.globalAlpha;
+        ctx.globalAlpha = 0.85;
+        const logoW = 150;
+        const logoH = logoW * (213 / 845);
+        const logoX = (VIEW_W - logoW) / 2;
+        const logoY = 690;
+        ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
+        ctx.globalAlpha = prevAlpha;
+      }
     }
 
     // Viền đỏ mờ khi vấp chướng ngại
@@ -553,5 +582,5 @@ export function createRenderer(canvas) {
     }
   }
 
-  return { render, lastAnim, onEvent };
+  return { render, lastAnim, onEvent, setBrandLogo };
 }

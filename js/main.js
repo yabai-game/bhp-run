@@ -4,7 +4,7 @@ import { createInput } from './input.js';
 import { createRenderer } from './render.js';
 import { createAccState, advance } from './loop.js';
 import { loadSprites } from './assets.js';
-import { initAudio, playEvent, startBgm, stopBgm } from './audio.js';
+import { initAudio, playEvent, startBgm, stopBgm, suspendAudio, resumeAudio } from './audio.js';
 
 // Đăng ký Service Worker chỉ khi trong Secure Context (HTTPS hoặc localhost)
 if ('serviceWorker' in navigator && window.isSecureContext) {
@@ -51,6 +51,12 @@ function init() {
     globalThis.__bpr = game;
     globalThis.__bprProps = 'fallback';
     globalThis.__bprSfx = [];
+    globalThis.__bprMusic = {
+      source: 'none',
+      level: 0,
+      bpm: 149.8,
+      decoded: false
+    };
     globalThis.__bprAnim = {
       teo: { name: 'run', frame: 0 },
       police: { name: 'run', frame: 0 }
@@ -61,6 +67,17 @@ function init() {
 
   const input = createInput(canvas);
   const renderer = createRenderer(canvas);
+
+  // Nạp logo thương hiệu YABAI nền trong suốt cho giao diện game
+  let brandLogo = null;
+  const brandImg = new Image();
+  brandImg.onload = () => {
+    brandLogo = brandImg;
+  };
+  brandImg.onerror = () => {
+    brandLogo = null;
+  };
+  brandImg.src = 'assets/brand/yabai_logo_white.png';
 
   // Tải sprite atlas không đồng bộ với cơ chế nâng cấp muộn
   let sprites = null;
@@ -95,6 +112,12 @@ function init() {
       rotateOverlay.style.display = isPausedByRotate ? 'flex' : 'none';
     }
 
+    if (isPausedByRotate) {
+      suspendAudio();
+    } else if (!document.hidden && game && game.phase === 'running') {
+      resumeAudio();
+    }
+
     // Kích thước khả dụng = document.body.clientWidth/clientHeight trừ padding safe-area
     const bodyStyle = window.getComputedStyle(document.body);
     const padX = (parseFloat(bodyStyle.paddingLeft) || 0) + (parseFloat(bodyStyle.paddingRight) || 0);
@@ -123,6 +146,13 @@ function init() {
 
   window.addEventListener('resize', fit);
   window.addEventListener('orientationchange', fit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      suspendAudio();
+    } else if (!isPausedByRotate && game.phase === 'running') {
+      resumeAudio();
+    }
+  });
   fit();
 
   // Vòng lặp fixed timestep DT = 1/120 s với logic loop.js
@@ -172,8 +202,8 @@ function init() {
 
     // Quản lý BGM: chỉ chạy khi running, tab hiện và không xoay ngang
     if (game.phase === 'running' && !document.hidden && !isPausedByRotate) {
-      startBgm();
-    } else {
+      startBgm(game.meter);
+    } else if (game.phase === 'ready') {
       stopBgm();
     }
 
@@ -198,7 +228,7 @@ function init() {
     // Render với biến đổi scale phù hợp với canvas backing store
     const k = canvas.width / VIEW_W;
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    renderer.render(game, bestScore, sprites, isDebug ? displayFps : null, loading, frameTime);
+    renderer.render(game, bestScore, sprites, isDebug ? displayFps : null, loading, frameTime, brandLogo);
 
     if (isDebug && renderer.lastAnim) {
       globalThis.__bprFps = displayFps;

@@ -58,6 +58,18 @@ export const ITEM_BOB = 0.08;
 
 export const SFX_VOL = 0.5;
 export const BGM_VOL = 0.12;
+export const MUSIC_FILE_VOL = 0.55;
+export const SIREN_VOL = 0.07;
+export const SIREN_METER_THRESHOLD = 70;
+export const MUSIC_LP_NORMAL = 9000;
+export const MUSIC_LP_TENSE = 20000;
+export const MUSIC_LP_TRANSITION = 0.5;
+export const MUSIC_STUMBLE_VOL_MUL = 0.35;
+export const MUSIC_STUMBLE_DROP_TIME = 0.08;
+export const MUSIC_STUMBLE_RECOVER_TIME = 0.35;
+export const MUSIC_CAUGHT_FADE_TIME = 0.3;
+export const MUSIC_CROSSFADE_TIME = 1.0;
+
 export const GRACE_M = 100;
 export const QUIP_MAX_W = 460;
 export const FLOAT_SCORE_TIME = 0.6;
