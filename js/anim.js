@@ -10,7 +10,9 @@ import {
   SLIDE_TIME,
   STUMBLE_TIME,
   ITEM_BOTTOM_Y,
-  ITEM_BOB
+  ITEM_BOB,
+  POLICE_Z_FAR,
+  POLICE_Z_NEAR
 } from './config.js';
 
 function clamp(val, min, max) {
@@ -74,7 +76,7 @@ export function policeAnim(state) {
 }
 
 export function policeZ(meter) {
-  return -3 + (2.0 * meter) / 100;
+  return POLICE_Z_FAR + ((POLICE_Z_NEAR - POLICE_Z_FAR) * meter) / 100;
 }
 
 export function policeX(player) {

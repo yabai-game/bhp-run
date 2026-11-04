@@ -1,10 +1,10 @@
 export const VIEW_W = 540;
 export const VIEW_H = 960;
 export const CX = 270;
-export const HORIZON_Y = 400;
+export const HORIZON_Y = 452;
 export const CAM_DIST = 6;
-export const CAM_HEIGHT = 4.7;
-export const FOCAL = 500;
+export const CAM_HEIGHT = 3.5;
+export const FOCAL = 580;
 export const DRAW_DIST = 120;
 export const DESPAWN_Z = -5;
 
@@ -49,6 +49,8 @@ export const JUMP_ANIM_TIME = 0.6;
 export const SLIDE_ANIM_TIME = 0.6;
 export const STUMBLE_ANIM_TIME = 0.83;
 export const POLICE_PHASE_OFFSET = 0.37;
+export const POLICE_Z_FAR = -4.5;
+export const POLICE_Z_NEAR = -1;
 export const SPRITE_PX_PER_M = 128;
 export const PROP_PX_PER_M = 160;
 export const SIDE_PROP_GAP = 8;
