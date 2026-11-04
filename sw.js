@@ -1,4 +1,4 @@
-const APP_VERSION = 'g11';
+const APP_VERSION = 'g12';
 const CACHE_NAME = 'bpr-' + APP_VERSION;
 
 const ASSETS = [
