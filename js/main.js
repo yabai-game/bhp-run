@@ -65,7 +65,29 @@ function insideRect(x, y, rect) {
   return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
 }
 
+// ---- Anonymous play counts (GoatCounter, owner request 2026-11-05) ----
+// No cookies, no personal data: one page view per visit plus a few milestones. count.js loads async from
+// index.html with no_onload; calls made before it arrives wait in a small queue. GoatCounter ignores localhost.
+const gcQueue = [];
+let gcTimer = 0;
+function gcFlush() {
+  const gc = window.goatcounter;
+  if (!gc || typeof gc.count !== 'function') return false;
+  while (gcQueue.length) { try { gc.count(gcQueue.shift()); } catch { /* blocked or offline */ } }
+  return true;
+}
+function gcSend(v) {
+  gcQueue.push(v);
+  if (gcFlush() || gcTimer) return;
+  let tries = 0;
+  gcTimer = setInterval(() => { if (gcFlush() || ++tries > 40) { clearInterval(gcTimer); gcTimer = 0; } }, 500);
+}
+function track(name, title = name) { gcSend({ path: `bhp/${name}`, title, event: true }); }
+const scoreBucket = (s) => (s < 1000 ? '0-1k' : s < 2500 ? '1k-2.5k' : s < 5000 ? '2.5k-5k' : s < 10000 ? '5k-10k' : '10k-plus');
+
 function init() {
+  gcSend({ path: location.pathname.replace(/[^/]*$/, '') || '/', title: document.title });
+  let gcRuns = 0;
   const canvas = document.getElementById('game');
   const rotateOverlay = document.getElementById('rotate');
   const ctx = canvas.getContext('2d');
@@ -494,10 +516,14 @@ function init() {
 
   const stepFn = (dt, currentActions) => {
     if (game.phase === 'ready' && currentActions.includes('start')) {
+      gcRuns++;
+      if (gcRuns === 1) track(`first-run-${selectedCharId.toLowerCase()}`, 'Lượt chạy đầu tiên');
       bestScoreBeforeRun = bestScore;
       isNewBest = false;
       justUnlockedList = [];
     } else if (game.phase === 'caught' && game.restartLockT <= 0 && currentActions.includes('start')) {
+      gcRuns++;
+      if (gcRuns === 5 || gcRuns === 20) track(`runs-${gcRuns}`, `Chơi ${gcRuns} lượt trong một lần mở`);
       bestScoreBeforeRun = bestScore;
       isNewBest = false;
       justUnlockedList = [];
@@ -517,6 +543,8 @@ function init() {
       isNewBest = game.score > bestScoreBeforeRun;
       const newlyUnlocked = justUnlocked(bestScoreBeforeRun, game.score);
       justUnlockedList = newlyUnlocked;
+      if (gcRuns <= 5) track(`score-${scoreBucket(game.score)}`, 'Điểm khi bị bắt');
+      for (const id of newlyUnlocked) track(`unlock-${String(id).toLowerCase()}`, 'Mở khoá nhân vật');
       if (newlyUnlocked.length > 0) {
         flashCharSelectT = 0.9;
       }
