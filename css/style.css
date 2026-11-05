@@ -181,6 +181,7 @@ body {
   margin: 0;
 }
 
+.disclaimer-card .disclaimer-copy { margin: 14px 0 0; font-size: 12px; opacity: 0.6; }
 .disclaimer-card .disclaimer-motto {
   color: #f472b6;
   font-weight: 800;

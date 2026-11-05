@@ -1,1121 +1,963 @@
-import {
-  VIEW_W,
-  VIEW_H,
-  DRAW_DIST,
-  PROP_PX_PER_M,
-  ITEM_TYPES,
-  UI_FONT,
-  HINT_TIME,
-  HINT_FADE
-} from './config.js';
-import { project, laneX, cameraX } from './track.js';
-import {
-  teoAnim,
-  policeAnim,
-  policeZ,
-  policeX,
-  spriteScale,
-  frameIndex,
-  propFrameKey,
-  sidePropFrameKey,
-  itemBottomY,
-  animNameFor
-} from './anim.js';
-import { createProps } from './props.js';
-import { createBackground } from './background.js';
-import { quipFor, wrapText } from './quips.js';
-import { billboardSlots } from './brand.js';
-import {
-  initBrandArt,
-  updateBrandLogo,
-  getTokenCanvas,
-  getBillboardCanvas,
-  isTokenReady,
-  isBillboardReady
-} from './brandart.js';
-import { HUD, CAUGHT, PAUSE, fitFontSize, formatScore, meterColor } from './hudlayout.js';
-import {
-  outlinedText,
-  pill,
-  button3d,
-  secondaryButton3d,
-  card,
-  ribbon,
-  crown,
-  arrowIcon,
-  lockIcon,
-  chickenIcon,
-  cherryBoxIcon
-} from './ui.js';
-import { CHARACTERS, isUnlocked } from './characters.js';
-
-const STORY_TEXT_OPTS = { strokeW: 3, shadowDy: 2 };
-
-export function createRenderer(canvas) {
-  const ctx = canvas.getContext('2d');
-  const props = createProps();
-  const bg = createBackground();
-  let animTime = 0;
-
-  // Danh sách phần tử vẽ tái sử dụng trong vòng lặp chính
-  const renderList = [];
-  const playerRenderItem = { kind: 'player', x: 0, y: 0, z: 0, sliding: false, airborne: false };
-  const policeRenderItem = { kind: 'police', x: 0, y: 0, z: 0 };
-
-  // Bộ cấp phát tĩnh cho đồ bên đường
-  const sidePropsPool = [];
-  for (let i = 0; i < 36; i++) {
-    sidePropsPool.push({ kind: 'sideProp', propType: 'lamp', x: 0, z: 0 });
-  }
-
-  // Bộ cấp phát tĩnh 3 đối tượng cho biển quảng cáo YABAI bên đường
-  const brandBoardsPool = [
-    { kind: 'brandBoard', x: 0, z: 0 },
-    { kind: 'brandBoard', x: 0, z: 0 },
-    { kind: 'brandBoard', x: 0, z: 0 }
-  ];
-  const billboardSlotsOut = [];
-  let drawnBoardsCount = 0;
-
-  const lastAnim = {
-    teo: { name: 'run', frame: 0 },
-    police: { name: 'run', frame: 0 }
-  };
-
-  let shakeT = 0;
-  let hitFlashT = 0;
-  let caughtSprites = null;
-  let caughtT = 0;
-  // Pool 12 phần tử tĩnh cho điểm bay (+N) và thông báo hiệu ứng
-  const floatScoresPool = [];
-  for (let i = 0; i < 12; i++) {
-    floatScoresPool.push({ active: false, text: '', x: 0, y: 0, t: 0, colorPrefix: 'rgba(253, 224, 71,' });
-  }
-
-  function spawnFloatingScore(text, x, y, isYabai = false) {
-    let slot = floatScoresPool.find(f => !f.active);
-    if (!slot) {
-      slot = floatScoresPool.reduce((oldest, item) => (item.t > oldest.t ? item : oldest), floatScoresPool[0]);
-    }
-    slot.active = true;
-    slot.text = text;
-    slot.x = x;
-    slot.y = y;
-    slot.t = 0;
-    slot.colorPrefix = isYabai ? 'rgba(251, 191, 36,' : 'rgba(253, 224, 71,';
-  }
-
-  // Pool tĩnh 6 hạt lông gà bay ra khi vỗ cánh
-  const feathersPool = [];
-  for (let i = 0; i < 6; i++) {
-    feathersPool.push({ active: false, x: 0, y: 0, vx: 0, vy: 0, r: 3, life: 0 });
-  }
-
-  function spawnFeathers(cx, cy) {
-    for (let i = 0; i < 6; i++) {
-      const f = feathersPool[i];
-      const angle = (i * Math.PI) / 3 + 0.2;
-      const speed = 75 + (i % 3) * 20;
-      f.active = true;
-      f.x = cx;
-      f.y = cy;
-      f.vx = Math.cos(angle) * speed;
-      f.vy = Math.sin(angle) * speed - 25;
-      f.r = 3 + (i % 3);
-      f.life = 0.6;
-    }
-  }
-
-  // Pool tĩnh 10 quả cherry văng ra khi ném hộp
-  const cherriesPool = [];
-  for (let i = 0; i < 10; i++) {
-    cherriesPool.push({ active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, r: 5, life: 0 });
-  }
-
-  function spawnCherries(cx, cy, cz) {
-    for (let i = 0; i < 10; i++) {
-      const c = cherriesPool[i];
-      const angle = (i * Math.PI * 2) / 10 + 0.3;
-      const speed = 1.2 + (i % 3) * 0.4;
-      c.active = true;
-      c.x = cx;
-      c.y = cy;
-      c.z = cz;
-      c.vx = Math.cos(angle) * speed;
-      c.vy = 2.2 + (i % 4) * 0.4;
-      c.vz = -1.8 - (i % 3) * 0.7;
-      c.r = 4 + (i % 3); // 4..6 px
-      c.life = 0.7;
-    }
-  }
-
-  // Trạng thái hiệu ứng thả gà chạy ra mép đường
-  const dropAnim = {
-    active: false,
-    t: 0,
-    startX: 0,
-    targetX: 0
-  };
-
-  // Trạng thái hiệu ứng ném hộp cherry bay về phía sau
-  const throwAnim = {
-    active: false,
-    t: 0,
-    startX: 0
-  };
-
-  let flapTimer = 0;
-  let flapPhase = 0;
-  let lastCamX = 0;
-  let lastPlayerX = 0;
-  let lastPlayerY = 0;
-  let lastPlayerCharId = 'TEO';
-
-  function onEvent(ev) {
-    if (!ev) return;
-    if (ev.type === 'hit') {
-      shakeT = 0.25;
-      hitFlashT = 0.25;
-    } else if (ev.type === 'flap') {
-      flapTimer = 0.6;
-      const p = project(lastPlayerX + 0.25, lastPlayerY + 1.15, 0.05, lastCamX);
-      spawnFeathers(p.sx, p.sy);
-      spawnFloatingScore('GÀ VỖ CÁNH!', p.sx, p.sy - 30, false);
-    } else if (ev.type === 'throw') {
-      throwAnim.active = true;
-      throwAnim.t = 0;
-      throwAnim.startX = lastPlayerX;
-      spawnCherries(lastPlayerX, 1.0, 0);
-      const p = project(lastPlayerX, 1.2, 0, lastCamX);
-      spawnFloatingScore('NÉM HỘP CHERRY! +1 MẠNG', p.sx, p.sy - 40, false);
-    } else if (ev.type === 'drop') {
-      dropAnim.active = true;
-      dropAnim.t = 0;
-      dropAnim.startX = lastPlayerX;
-      dropAnim.targetX = lastPlayerX <= 0 ? -4.5 : 4.5;
-      const p = project(lastPlayerX, 1.0, 0, lastCamX);
-      const dropLabel = lastPlayerCharId === 'NO' ? 'THẢ HỘP CHERRY!' : 'THẢ GÀ!';
-      spawnFloatingScore(dropLabel, p.sx, p.sy - 30, false);
-    } else if (ev.type === 'pickup') {
-      const lane = ev.lane !== undefined ? ev.lane : 1;
-      const p = project(laneX(lane), 0.5, 0, lastCamX);
-      if (ev.item === 'YABAI') {
-        spawnFloatingScore('+100 YABAI!', p.sx, p.sy, true);
-      } else {
-        const pts = ITEM_TYPES[ev.item] ? ITEM_TYPES[ev.item].points : 10;
-        spawnFloatingScore(`+${pts}`, p.sx, p.sy, false);
-      }
-    }
-  }
-
-  let defaultBrandLogo = null;
-  function setBrandLogo(img) {
-    defaultBrandLogo = img;
-    updateBrandLogo(img);
-    bg.setBrandLogo(img);
-  }
-
-  function render(
-    state,
-    bestScore = 0,
-    sprites = null,
-    fps = null,
-    loading = false,
-    dt = 1 / 60,
-    brandLogo = null,
-    isNewBest = false,
-    justUnlockedGa = false,
-    unlockAll = false,
-    flashCharSelectT = 0,
-    caughtSpritesParam = null,
-    paused = false
-  ) {
-    if (caughtSpritesParam) {
-      caughtSprites = caughtSpritesParam;
-    }
-    const camX = cameraX(state.player.x);
-    lastCamX = camX;
-    lastPlayerX = state.player.x;
-    lastPlayerY = state.player.y;
-    lastPlayerCharId = state.characterId;
-
-    const delta = typeof dt === 'number' && dt > 0 ? dt : 1 / 60;
-    animTime += delta;
-    const activeLogo = brandLogo || defaultBrandLogo;
-    // Kích hoạt làm mịn ảnh chất lượng cao
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    if (state.phase === 'ready') {
-      caughtT = 0;
-      shakeT = 0;
-      hitFlashT = 0;
-      flapTimer = 0;
-      dropAnim.active = false;
-      throwAnim.active = false;
-      for (let i = 0; i < floatScoresPool.length; i++) {
-        floatScoresPool[i].active = false;
-      }
-      for (let i = 0; i < feathersPool.length; i++) {
-        feathersPool[i].active = false;
-      }
-      for (let i = 0; i < cherriesPool.length; i++) {
-        cherriesPool[i].active = false;
-      }
-    } else {
-      if (shakeT > 0) shakeT = Math.max(0, shakeT - delta);
-      if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - delta);
-
-      if (flapTimer > 0) {
-        flapTimer = Math.max(0, flapTimer - delta);
-        flapPhase += 30 * delta;
-      } else {
-        flapPhase += 6 * delta;
-      }
-
-      if (dropAnim.active) {
-        dropAnim.t += delta;
-        if (dropAnim.t >= 0.8) {
-          dropAnim.active = false;
-        }
-      }
-
-      if (throwAnim.active) {
-        throwAnim.t += delta;
-        if (throwAnim.t >= 0.7) {
-          throwAnim.active = false;
-        }
-      }
-
-      for (let i = 0; i < feathersPool.length; i++) {
-        const f = feathersPool[i];
-        if (f.active) {
-          f.x += f.vx * delta;
-          f.y += f.vy * delta;
-          f.life -= delta;
-          if (f.life <= 0) {
-            f.active = false;
-          }
-        }
-      }
-
-      for (let i = 0; i < cherriesPool.length; i++) {
-        const c = cherriesPool[i];
-        if (c.active) {
-          c.x += c.vx * delta;
-          c.y += c.vy * delta - 4.9 * delta * delta;
-          c.z += c.vz * delta;
-          c.life -= delta;
-          if (c.life <= 0) {
-            c.active = false;
-          }
-        }
-      }
-
-      for (let i = 0; i < floatScoresPool.length; i++) {
-        const f = floatScoresPool[i];
-        if (f.active) {
-          f.t += delta;
-          if (f.t >= 0.6) {
-            f.active = false;
-          }
-        }
-      }
-    }
-
-    const prefersReducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const reducedMotion = Boolean(prefersReducedMotion);
-
-    const isShaking = shakeT > 0 && !prefersReducedMotion;
-    if (isShaking) {
-      const amp = 6 * (shakeT / 0.25);
-      const shakeX = (Math.random() * 2 - 1) * amp;
-      const shakeY = (Math.random() * 2 - 1) * amp;
-      ctx.save();
-      ctx.translate(shakeX, shakeY);
-    }
-
-    // 1. Vẽ bầu trời và mặt đường Tokyo đêm
-    bg.renderSkyAndBackground(ctx, state);
-
-    // 2. Thu thập và sắp xếp vật thể
-    renderList.length = 0;
-
-    // Đồ bên đường (cột đèn & cặp đèn lồng đỏ xen kẽ mỗi 8m)
-    let sidePropIdx = 0;
-    const sidePhase = state.distance % 8;
-    for (let k = 0; k <= 15; k++) {
-      const z = k * 8 - sidePhase;
-      if (z > -2 && z < DRAW_DIST) {
-        const propType = (k % 2 === 0) ? 'lamp' : 'lanterns';
-
-        const pLeft = sidePropsPool[sidePropIdx++];
-        pLeft.propType = propType;
-        pLeft.x = -4.65;
-        pLeft.z = z;
-        renderList.push(pLeft);
-
-        const pRight = sidePropsPool[sidePropIdx++];
-        pRight.propType = propType;
-        pRight.x = 4.65;
-        pRight.z = z;
-        renderList.push(pRight);
-      }
-    }
-
-    // Biển quảng cáo YABAI bên đường (nếu logo đã nạp thành công)
-    drawnBoardsCount = 0;
-    const bCanvas = getBillboardCanvas();
-    if (bCanvas) {
-      billboardSlots(state.distance, billboardSlotsOut);
-      for (let i = 0; i < billboardSlotsOut.length && i < brandBoardsPool.length; i++) {
-        const slot = billboardSlotsOut[i];
-        const bb = brandBoardsPool[i];
-        bb.x = slot.x;
-        bb.z = slot.z;
-        renderList.push(bb);
-        drawnBoardsCount++;
-      }
-    }
-
-    // Chướng ngại & Đồ nhặt
-    for (let i = 0; i < state.objects.length; i++) {
-      const obj = state.objects[i];
-      if (obj.z > -2 && obj.z < DRAW_DIST) {
-        if (obj.kind === 'item' && obj.taken) continue;
-        renderList.push(obj);
-      }
-    }
-
-    // Tèo / Trộm Gà
-    playerRenderItem.x = state.player.x;
-    playerRenderItem.y = state.player.y;
-    playerRenderItem.z = 0;
-    playerRenderItem.sliding = state.player.sliding;
-    playerRenderItem.airborne = state.player.airborne;
-    renderList.push(playerRenderItem);
-
-    // Cảnh sát
-    policeRenderItem.x = policeX(state.player);
-    policeRenderItem.y = 0;
-    policeRenderItem.z = policeZ(state.meter);
-    renderList.push(policeRenderItem);
-
-    // Sắp xếp z giảm dần (xa vẽ trước, gần vẽ sau)
-    renderList.sort((a, b) => b.z - a.z);
-
-    // 3. Vẽ từng vật thể theo thứ tự chiều sâu
-    const hasPropSprites = Boolean(sprites && sprites.props && sprites.props.data);
-
-    function drawPropSprite(key, x, y, z) {
-      if (!hasPropSprites) return;
-      const f = sprites.props.data.frames[key];
-      if (!f) return;
-      const p = project(x, y, z, camX);
-      const k = p.scale / (sprites.props.data.pxPerMeter || 128);
-      ctx.drawImage(
-        sprites.props.img,
-        f.x, f.y, f.w, f.h,
-        p.sx - f.anchor[0] * k,
-        p.sy - f.anchor[1] * k,
-        f.w * k,
-        f.h * k
-      );
-    }
-
-    for (let i = 0; i < renderList.length; i++) {
-      const item = renderList[i];
-
-      if (item.kind === 'brandBoard') {
-        const bCanvas = getBillboardCanvas();
-        if (bCanvas) {
-          const p = project(item.x, 0, item.z, camX);
-          const k = p.scale / PROP_PX_PER_M;
-          const w = bCanvas.width * k;
-          const h = bCanvas.height * k;
-          ctx.drawImage(bCanvas, p.sx - w / 2, p.sy - h, w, h);
-        }
-      } else if (item.kind === 'sideProp') {
-        if (hasPropSprites) {
-          const sideSign = item.x < 0 ? -1 : 1;
-          const key = sidePropFrameKey(item.propType, sideSign);
-          drawPropSprite(key, item.x, 0, item.z);
-        } else {
-          const p = project(item.x, 0, item.z, camX);
-          const k = p.scale / PROP_PX_PER_M;
-          const c = item.propType === 'lamp' ? props.lamp : props.lanterns;
-          const w = c.w * k;
-          const h = c.h * k;
-          ctx.drawImage(c.canvas, p.sx - w / 2, p.sy - h, w, h);
-        }
-      } else if (item.kind === 'obstacle') {
-        const ox = laneX(item.lane);
-        const oz = item.z;
-        const p = project(ox, 0, oz, camX);
-
-        if (hasPropSprites) {
-          const key = propFrameKey(item);
-          const wMeters = (sprites.props.data.sizesMeters && sprites.props.data.sizesMeters[key])
-            ? sprites.props.data.sizesMeters[key][0]
-            : 2.0;
-
-          // Bóng chướng ngại (vẽ trước vật): ellipse tại project(laneX, 0, z), bán kính 0.55 * rộng × 0.18 m × p.scale
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-          ctx.beginPath();
-          ctx.ellipse(p.sx, p.sy, 0.55 * wMeters * p.scale, 0.18 * p.scale, 0, 0, Math.PI * 2);
-          ctx.fill();
-
-          drawPropSprite(key, ox, 0, oz);
-        } else {
-          const k = p.scale / PROP_PX_PER_M;
-
-          if (item.type === 'GATE') {
-            const c = props.gate;
-            const w = c.w * k;
-            const h = c.h * k;
-            ctx.drawImage(c.canvas, p.sx - w / 2, p.sy - h, w, h);
-          } else if (item.type === 'BARRIER') {
-            const c = props.barrier;
-            const w = c.w * k;
-            const h = c.h * k;
-            const left = p.sx - w / 2;
-            const top = p.sy - h;
-            ctx.drawImage(c.canvas, left, top, w, h);
-
-            // Đèn cam nhấp nháy trên đỉnh cột trái
-            if (Math.floor(state.time * 3) % 2 === 0) {
-              const lx = left + 48 * k;
-              const ly = top + 10 * k;
-              const r = Math.max(2, 6 * k);
-              ctx.fillStyle = '#f97316';
-              ctx.beginPath();
-              ctx.arc(lx, ly, r, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.fillStyle = 'rgba(249, 115, 22, 0.4)';
-              ctx.beginPath();
-              ctx.arc(lx, ly, r * 2, 0, Math.PI * 2);
-              ctx.fill();
-            }
-          } else if (item.type === 'VENDING') {
-            const c = props.vendings[item.lane] || props.vendings[0];
-            const w = c.w * k;
-            const h = c.h * k;
-            ctx.drawImage(c.canvas, p.sx - w / 2, p.sy - h, w, h);
-          }
-        }
-      } else if (item.kind === 'item') {
-        const ix = laneX(item.lane);
-        const iz = item.z;
-
-        // Bóng nhỏ dưới đất
-        const pGnd = project(ix, 0, iz, camX);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-        ctx.beginPath();
-        ctx.ellipse(pGnd.sx, pGnd.sy, 0.25 * pGnd.scale, 0.08 * pGnd.scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (item.item === 'YABAI') {
-          const tCanvas = getTokenCanvas();
-          const iy = itemBottomY(state.time, iz);
-          const p = project(ix, iy, iz, camX);
-          const rScreen = 0.3 * p.scale; // YABAI_TOKEN_M = 0.6 m -> r = 0.3 m
-          const cx = p.sx;
-          const cy = p.sy - rScreen; // tâm huy hiệu
-
-          // Quầng vàng sau lưng = 1 hình tròn rgba(251,191,36,0.25) bán kính 1.35 * r
-          ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
-          ctx.beginPath();
-          ctx.arc(cx, cy, 1.35 * rScreen, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Xoay: chiều ngang nhân max(0.2, |cos(time * 3 + z)|)
-          const spin = Math.max(0.2, Math.abs(Math.cos(state.time * 3 + iz)));
-          const w = 2 * rScreen * spin;
-          const h = 2 * rScreen;
-          ctx.drawImage(tCanvas, cx - w / 2, cy - h / 2, w, h);
-        } else if (hasPropSprites) {
-          const key = propFrameKey(item);
-          const iy = itemBottomY(state.time, iz);
-          drawPropSprite(key, ix, iy, iz);
-        } else {
-          // Đồ nhặt lơ lửng fallback
-          const iy = 0.5 + 0.08 * Math.sin(state.time * 4 + iz);
-          const p = project(ix, iy, iz, camX);
-          const k = p.scale / PROP_PX_PER_M;
-
-          let c = props.onigiri;
-          if (item.item === 'TICKET') c = props.ticket;
-          else if (item.item === 'SUIKA') c = props.suika;
-          else if (item.item === 'SALARY') c = props.salary;
-
-          const w = c.w * k;
-          const h = c.h * k;
-          ctx.drawImage(c.canvas, p.sx - w / 2, p.sy - h / 2, w, h);
-        }
-      } else if (item.kind === 'player') {
-        // Bóng của người chơi
-        const pGnd = project(item.x, 0, 0, camX);
-        const alpha = 0.35 * (1 - Math.min(item.y / 1.2, 0.6));
-        ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-        ctx.beginPath();
-        ctx.ellipse(pGnd.sx, pGnd.sy, 0.45 * pGnd.scale, 0.16 * pGnd.scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Nhấp nháy khi đang miễn nhiễm (invulnT > 0: alpha 0.5/1.0 mỗi 0.1 s)
-        let restoreAlpha = false;
-        if (state.invulnT > 0) {
-          const blink = Math.floor(state.invulnT / 0.1) % 2 === 0;
-          ctx.save();
-          ctx.globalAlpha = blink ? 0.5 : 1.0;
-          restoreAlpha = true;
-        }
-
-        const isGa = state.characterId === 'GA';
-        const isNo = state.characterId === 'NO';
-        const chickenHeld = Boolean(state.chicken && state.chicken.held);
-        const cherryHeld = Boolean(state.cherry && state.cherry.held);
-
-        if (isGa && sprites && sprites.gathief && sprites.gathief.data && sprites.gathief.data.animations) {
-          const baseAnim = teoAnim(state);
-          const animName = animNameFor(baseAnim.name, chickenHeld);
-          const aData = sprites.gathief.data.animations[animName] || sprites.gathief.data.animations[baseAnim.name];
-          const fIdx = frameIndex(aData.frames.length, baseAnim.u, baseAnim.loop);
-          const fKey = aData.frames[fIdx];
-          const f = sprites.gathief.data.frames[fKey];
-          const p = project(item.x, item.y, 0, camX);
-          const k = spriteScale(p.scale);
-          const [ax, ay] = sprites.gathief.data.anchor;
-          ctx.drawImage(sprites.gathief.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
-
-          lastAnim.teo.name = animName;
-          lastAnim.teo.frame = fIdx;
-        } else if (isNo && sprites && sprites.no && sprites.no.data && sprites.no.data.animations) {
-          const baseAnim = teoAnim(state);
-          const animName = animNameFor(baseAnim.name, cherryHeld);
-          const aData = sprites.no.data.animations[animName] || sprites.no.data.animations[baseAnim.name];
-          const fIdx = frameIndex(aData.frames.length, baseAnim.u, baseAnim.loop);
-          const fKey = aData.frames[fIdx];
-          const f = sprites.no.data.frames[fKey];
-          const p = project(item.x, item.y, 0, camX);
-          const k = spriteScale(p.scale);
-          const [ax, ay] = sprites.no.data.anchor;
-          ctx.drawImage(sprites.no.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
-
-          lastAnim.teo.name = animName;
-          lastAnim.teo.frame = fIdx;
-        } else if (sprites && sprites.teo) {
-          const anim = teoAnim(state);
-          const aData = sprites.teo.data.animations[anim.name];
-          const fIdx = frameIndex(aData.frames.length, anim.u, anim.loop);
-          const fKey = aData.frames[fIdx];
-          const f = sprites.teo.data.frames[fKey];
-          const p = project(item.x, item.y, 0, camX);
-          const k = spriteScale(p.scale);
-          const [ax, ay] = sprites.teo.data.anchor;
-          ctx.drawImage(sprites.teo.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
-
-          // Dự phòng khi là Trộm Gà ôm gà: vẽ gà code trước ngực
-          if (isGa && chickenHeld) {
-            const pChicken = project(item.x + 0.25, item.y + 1.15, 0.05, camX);
-            const sChicken = 0.45 * pChicken.scale;
-            chickenIcon(ctx, pChicken.sx, pChicken.sy, sChicken, flapPhase);
-          }
-
-          // Dự phòng khi là Nở ôm hộp cherry: vẽ hộp cherry code ở hông phải
-          if (isNo && cherryHeld) {
-            const pCherry = project(item.x + 0.22, item.y + 0.85, 0.05, camX);
-            const sCherry = 0.38 * pCherry.scale;
-            cherryBoxIcon(ctx, pCherry.sx, pCherry.sy, sCherry);
-          }
-
-          lastAnim.teo.name = anim.name;
-          lastAnim.teo.frame = fIdx;
-        } else {
-          // Khối màu dự phòng G00
-          const py = item.y;
-          const pHeight = item.sliding ? 0.9 : 1.8;
-          const pBot = project(item.x, py, 0, camX);
-          const pTop = project(item.x, py + pHeight, 0, camX);
-          const scale = pBot.scale;
-          const w = 1.2 * scale;
-          const h = pBot.sy - pTop.sy;
-          const left = pBot.sx - w / 2;
-          const top = pTop.sy;
-
-          ctx.fillStyle = state.stumbleT > 0 ? '#fb923c' : '#ea580c';
-          ctx.fillRect(left, top, w, h);
-          ctx.strokeStyle = '#c2410c';
-          ctx.lineWidth = Math.max(2, scale * 0.05);
-          ctx.strokeRect(left, top, w, h);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.font = `700 ${Math.max(16, Math.round(scale * 0.35))}px ${UI_FONT}`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          let displayName = 'TÈO';
-          if (isGa) displayName = CHARACTERS.GA.name;
-          else if (isNo) displayName = CHARACTERS.NO.name;
-          ctx.fillText(displayName, pBot.sx, top + h / 2);
-
-          if (isGa && chickenHeld) {
-            const pChicken = project(item.x + 0.25, item.y + 1.15, 0.05, camX);
-            const sChicken = 0.45 * pChicken.scale;
-            chickenIcon(ctx, pChicken.sx, pChicken.sy, sChicken, flapPhase);
-          }
-          if (isNo && cherryHeld) {
-            const pCherry = project(item.x + 0.22, item.y + 0.85, 0.05, camX);
-            const sCherry = 0.38 * pCherry.scale;
-            cherryBoxIcon(ctx, pCherry.sx, pCherry.sy, sCherry);
-          }
-
-          lastAnim.teo.name = 'fallback';
-          lastAnim.teo.frame = 0;
-        }
-
-        if (restoreAlpha) {
-          ctx.restore();
-        }
-      } else if (item.kind === 'police') {
-        // Bóng của cảnh sát
-        const pGnd = project(item.x, 0, item.z, camX);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-        ctx.beginPath();
-        ctx.ellipse(pGnd.sx, pGnd.sy, 0.45 * pGnd.scale, 0.16 * pGnd.scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (sprites && sprites.police) {
-          const anim = policeAnim(state);
-          const aData = sprites.police.data.animations[anim.name];
-          const fIdx = frameIndex(aData.frames.length, anim.u, anim.loop);
-          const fKey = aData.frames[fIdx];
-          const f = sprites.police.data.frames[fKey];
-          const p = project(item.x, item.y, item.z, camX);
-          const k = spriteScale(p.scale);
-          const [ax, ay] = sprites.police.data.anchor;
-          ctx.drawImage(sprites.police.img, f.x, f.y, f.w, f.h, p.sx - ax * k, p.sy - ay * k, f.w * k, f.h * k);
-
-          lastAnim.police.name = anim.name;
-          lastAnim.police.frame = fIdx;
-        } else {
-          // Khối màu dự phòng G00
-          const pBot = project(item.x, item.y, item.z, camX);
-          const pTop = project(item.x, item.y + 1.8, item.z, camX);
-          const scale = pBot.scale;
-          const w = 1.5 * scale;
-          const h = pBot.sy - pTop.sy;
-          const left = pBot.sx - w / 2;
-          const top = pTop.sy;
-
-          ctx.fillStyle = '#1d4ed8';
-          ctx.fillRect(left, top, w, h);
-          ctx.strokeStyle = '#1e40af';
-          ctx.lineWidth = Math.max(2, scale * 0.05);
-          ctx.strokeRect(left, top, w, h);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.font = `700 ${Math.max(16, Math.round(scale * 0.3))}px ${UI_FONT}`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('CẢNH SÁT', pBot.sx, top + h / 2);
-
-          lastAnim.police.name = 'fallback';
-          lastAnim.police.frame = 0;
-        }
-      }
-    }
-
-    // Vẽ gà thả chạy ngang ra mép đường
-    if (dropAnim.active) {
-      const dropProgress = Math.min(1, dropAnim.t / 0.8);
-      const curX = dropAnim.startX + (dropAnim.targetX - dropAnim.startX) * dropProgress;
-      const pDrop = project(curX, 0, 0, camX);
-      const sDrop = 0.45 * pDrop.scale;
-      chickenIcon(ctx, pDrop.sx, pDrop.sy - sDrop * 0.4, sDrop, animTime * 30);
-    }
-
-    // Vẽ ném hộp cherry bay về phía sau theo parabol 0.7 s
-    if (throwAnim.active) {
-      const u = Math.min(1, throwAnim.t / 0.7);
-      const curZ = 0 - u * 4.5;
-      const curY = 1.0 + 2.0 * Math.sin(u * Math.PI);
-      const pBox = project(throwAnim.startX, curY, curZ, camX);
-      const sBox = 0.45 * pBox.scale;
-      ctx.save();
-      ctx.translate(pBox.sx, pBox.sy);
-      ctx.rotate(u * Math.PI * 4);
-      cherryBoxIcon(ctx, 0, 0, sBox);
-      ctx.restore();
-    }
-
-    // 4. Sương xa chân trời
-    bg.renderFarFog(ctx);
-
-    // Vẽ 6 hạt lông gà bay ra khi vỗ cánh
-    for (let i = 0; i < feathersPool.length; i++) {
-      const f = feathersPool[i];
-      if (f.active) {
-        const alpha = Math.max(0, f.life / 0.6);
-        ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(2)})`;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Vẽ 10 quả cherry văng ra
-    for (let i = 0; i < cherriesPool.length; i++) {
-      const c = cherriesPool[i];
-      if (c.active) {
-        const pCherry = project(c.x, c.y, c.z, camX);
-        const alpha = Math.max(0, c.life / 0.7);
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.beginPath();
-        ctx.arc(pCherry.sx, pCherry.sy, c.r, 0, Math.PI * 2);
-        ctx.fillStyle = '#ef4444';
-        ctx.fill();
-        ctx.strokeStyle = '#991b1b';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(pCherry.sx - c.r * 0.35, pCherry.sy - c.r * 0.35, c.r * 0.3, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-
-    // Điểm bay (+N) và thông báo bay
-    for (let i = 0; i < floatScoresPool.length; i++) {
-      const f = floatScoresPool[i];
-      if (f.active) {
-        const progress = f.t / 0.6;
-        const curY = f.y - progress * 60;
-        const isYabai = f.text.includes('YABAI');
-        const isSpecial = f.text === 'GÀ VỖ CÁNH!' || f.text === 'THẢ GÀ!' || f.text === 'THẢ HỘP CHERRY!';
-        const isCherryThrow = f.text.includes('CHERRY');
-        let color = isYabai ? '#fbbf24' : '#fde047';
-        let size = isSpecial ? 28 : (isYabai ? 32 : 30);
-        if (isCherryThrow) {
-          color = '#f472b6';
-          size = 26;
-        }
-        outlinedText(ctx, f.text, f.x, curY, size, 800, color);
-      }
-    }
-
-    if (isShaking) {
-      ctx.restore();
-    }
-
-    // 5. HUD khi chạy (running)
-    if (state.phase === 'running') {
-      // 1. Quãng đường (distance pill)
-      pill(ctx, HUD.distance.x, HUD.distance.y, HUD.distance.w, HUD.distance.h, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
-      const distStr = `${Math.floor(state.distance)} m`;
-      const distSize = fitFontSize(distStr, HUD.distance.w - 24, 28, 16, (t, s) => {
-        ctx.font = `800 ${s}px ${UI_FONT}`;
-        return ctx.measureText(t).width;
-      });
-      outlinedText(ctx, distStr, HUD.distance.x + HUD.distance.w / 2, HUD.distance.y + HUD.distance.h / 2, distSize, 800, '#ffffff');
-
-      // 2. Điểm số (score)
-      const scoreStr = formatScore(state.score);
-      const scoreSize = fitFontSize(scoreStr, HUD.score.w, 48, 28, (t, s) => {
-        ctx.font = `800 ${s}px ${UI_FONT}`;
-        return ctx.measureText(t).width;
-      });
-      outlinedText(ctx, scoreStr, HUD.score.x + HUD.score.w / 2, HUD.score.y + HUD.score.h / 2, scoreSize, 800, '#ffffff');
-
-      // 3. Kỷ lục (best pill)
-      pill(ctx, HUD.best.x, HUD.best.y, HUD.best.w, HUD.best.h, 'rgba(11, 21, 48, 0.88)', '#94a3b8', 3);
-      crown(ctx, HUD.best.x + 22, HUD.best.y + HUD.best.h / 2, 20, '#fbbf24');
-      const bestStr = formatScore(bestScore);
-      const bestSize = fitFontSize(bestStr, HUD.best.w - 42, 26, 14, (t, s) => {
-        ctx.font = `800 ${s}px ${UI_FONT}`;
-        return ctx.measureText(t).width;
-      });
-      outlinedText(ctx, bestStr, HUD.best.x + 30 + (HUD.best.w - 30) / 2, HUD.best.y + HUD.best.h / 2, bestSize, 800, '#fbbf24');
-
-      // 4. Thanh cảnh sát (Police Meter pill)
-      const isHighMeter = state.meter >= 70;
-      const altCycle = Math.floor(animTime / 0.25) % 2 === 1;
-      const meterBorder = (isHighMeter && !reducedMotion && altCycle) ? '#3b82f6' : (isHighMeter ? '#ef4444' : '#0b1530');
-
-      pill(ctx, HUD.meter.x, HUD.meter.y, HUD.meter.w, HUD.meter.h, 'rgba(11, 21, 48, 0.88)');
-
-      ctx.save();
-      const mr = HUD.meter.h / 2;
-      ctx.beginPath();
-      ctx.moveTo(HUD.meter.x + mr, HUD.meter.y);
-      ctx.lineTo(HUD.meter.x + HUD.meter.w - mr, HUD.meter.y);
-      ctx.arc(HUD.meter.x + HUD.meter.w - mr, HUD.meter.y + mr, mr, -Math.PI / 2, Math.PI / 2);
-      ctx.lineTo(HUD.meter.x + mr, HUD.meter.y + HUD.meter.h);
-      ctx.arc(HUD.meter.x + mr, HUD.meter.y + mr, mr, Math.PI / 2, -Math.PI / 2);
-      ctx.closePath();
-      ctx.clip();
-
-      const fillRatio = Math.min(1, Math.max(0, state.meter / 100));
-      ctx.fillStyle = meterColor(state.meter);
-      ctx.fillRect(HUD.meter.x, HUD.meter.y, HUD.meter.w * fillRatio, HUD.meter.h);
-      ctx.restore();
-
-      pill(ctx, HUD.meter.x, HUD.meter.y, HUD.meter.w, HUD.meter.h, null, meterBorder, 3);
-
-      ctx.beginPath();
-      ctx.arc(36, HUD.meter.y + HUD.meter.h / 2, 7, 0, Math.PI * 2);
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-      ctx.strokeStyle = '#0b1530';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(54, HUD.meter.y + HUD.meter.h / 2, 7, 0, Math.PI * 2);
-      ctx.fillStyle = '#3b82f6';
-      ctx.fill();
-      ctx.strokeStyle = '#0b1530';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      outlinedText(ctx, `CẢNH SÁT ${Math.round(state.meter)}%`, HUD.meter.x + HUD.meter.w / 2, HUD.meter.y + HUD.meter.h / 2, 20, 800, '#ffffff');
-
-      // HUD khi là Trộm Gà ôm gà: biểu tượng gà + ×1 hoặc ×0
-      if (state.characterId === 'GA' && state.chicken && state.chicken.held) {
-        ctx.save();
-        if (!state.chicken.flapReady) {
-          ctx.globalAlpha = 0.4;
-        }
-        chickenIcon(ctx, 40, 136, 28, flapPhase);
-        outlinedText(ctx, state.chicken.flapReady ? '×1' : '×0', 66, 136, 22, 800, '#ffffff', { align: 'left' });
-        ctx.restore();
-      }
-
-      // HUD khi là Nở ôm hộp cherry: biểu tượng hộp cherry + +1 hoặc +0
-      if (state.characterId === 'NO' && state.cherry && state.cherry.held) {
-        ctx.save();
-        if (!state.cherry.lifeReady) {
-          ctx.globalAlpha = 0.4;
-        }
-        cherryBoxIcon(ctx, 40, 136, 26);
-        outlinedText(ctx, state.cherry.lifeReady ? '+1' : '+0', 66, 136, 22, 800, '#ffffff', { align: 'left' });
-        ctx.restore();
-      }
-
-      // Gợi ý điều khiển đầu ván (thay cho các chip ở màn chờ cũ), trong đoạn đường không có chướng ngại
-      if (state.time < HINT_TIME) {
-        const hintA = state.time < HINT_TIME - HINT_FADE ? 1 : Math.max(0, (HINT_TIME - state.time) / HINT_FADE);
-        const dropText = state.characterId === 'GA' ? 'Chạm 2 lần: thả gà' : (state.characterId === 'NO' ? 'Chạm 2 lần: thả hộp' : null);
-        const hintH = dropText ? 176 : 146;
-        ctx.save();
-        ctx.globalAlpha = 0.92 * hintA;
-        card(ctx, 80, 440, 380, hintH, '#22d3ee');
-        outlinedText(ctx, 'VUỐT ĐỂ ĐIỀU KHIỂN', 270, 468, 18, 800, '#fde047');
-        const hintChips = [
-          { x: 170, kind: 'lr', label: 'Đổi làn' },
-          { x: 270, kind: 'up', label: 'Nhảy' },
-          { x: 370, kind: 'down', label: 'Trượt' }
-        ];
-        for (const chip of hintChips) {
-          pill(ctx, chip.x - 24, 512 - 24, 48, 48, 'rgba(11, 21, 48, 0.88)', '#22d3ee', 3);
-          arrowIcon(ctx, chip.x, 512, 14, chip.kind);
-          outlinedText(ctx, chip.label, chip.x, 558, 17, 700, '#e2e8f0');
-        }
-        if (dropText) {
-          outlinedText(ctx, dropText, 270, 592, 17, 700, '#fbbf24');
-        }
-        ctx.restore();
-      }
-
-      if (fps !== null && fps !== undefined) {
-        const fpsY = (state.characterId === 'GA' || state.characterId === 'NO') ? 170 : 130;
-        outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
-      }
-
-      // Nút tạm dừng ⏸ (cùng kiểu nút loa)
-      const pb = PAUSE.btn;
-      pill(ctx, pb.x, pb.y, pb.w, pb.h, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(pb.x + pb.w / 2 - 9, pb.y + 15, 6, pb.h - 30);
-      ctx.fillRect(pb.x + pb.w / 2 + 3, pb.y + 15, 6, pb.h - 30);
-
-      if (paused) {
-        ctx.fillStyle = 'rgba(8, 12, 34, 0.7)';
-        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-        const pc = PAUSE.card;
-        card(ctx, pc.x, pc.y, pc.w, pc.h, '#22d3ee');
-        ribbon(ctx, 270, pc.y, 'TẠM DỪNG', 34, '#22d3ee', '#063040');
-        const r = PAUSE.resume;
-        button3d(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, r.h, 'TIẾP TỤC', 32, 1, true);
-        const rs = PAUSE.restart;
-        secondaryButton3d(ctx, rs.x + rs.w / 2, rs.y + rs.h / 2, rs.w, rs.h, 'CHƠI LẠI', 26);
-        const m = PAUSE.menu;
-        secondaryButton3d(ctx, m.x + m.w / 2, m.y + m.h / 2, m.w, m.h, 'MENU', 26);
-      }
-    }
-
-    // 6. Màn Ready / Game Over
-    if (state.phase === 'ready') {
-      // Màn chờ do sảnh nhân vật (lobby.js) vẽ toàn bộ — chủ kênh 2026-11-04 gộp sảnh ra màn chính
-    } else if (state.phase === 'caught') {
-      caughtT += delta;
-      ctx.fillStyle = 'rgba(8, 12, 34, 0.62)';
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
-      // Ảnh "bị bắt đứng khóc" nếu có sprite
-      const charKey = state.characterId === 'GA' ? 'ga' : (state.characterId === 'NO' ? 'no' : 'teo');
-      const caughtAtlas = caughtSprites ? caughtSprites[charKey] : null;
-      if (caughtAtlas && caughtAtlas.img && caughtAtlas.data) {
-        const anim = caughtAtlas.data.animations?.cry;
-        const frames = anim?.frames || Object.keys(caughtAtlas.data.frames || {});
-        if (frames.length > 0) {
-          const duration = anim?.duration || 1.0;
-          const u = (caughtT % duration) / duration;
-          const fIdx = Math.min(frames.length - 1, Math.floor(u * frames.length));
-          const frameKey = frames[fIdx];
-          const frame = caughtAtlas.data.frames[frameKey];
-          if (frame) {
-            ctx.save();
-            ctx.globalAlpha = Math.min(1, caughtT / 0.3);
-            ctx.drawImage(
-              caughtAtlas.img,
-              frame.x, frame.y, frame.w, frame.h,
-              CAUGHT.art.x, CAUGHT.art.y, CAUGHT.art.w, CAUGHT.art.h
-            );
-            ctx.restore();
-          }
-        }
-      }
-
-      card(ctx, CAUGHT.card.x, CAUGHT.card.y, CAUGHT.card.w, CAUGHT.card.h, '#ef4444');
-      ribbon(ctx, 270, 362, 'BỊ TÓM!', 44, '#ef4444', '#ffffff');
-
-      const reasonText = state.caughtReason === 'meter' ? 'Cảnh sát bắt kịp rồi.' : 'Vấp hai lần liên tiếp.';
-      outlinedText(ctx, reasonText, 270, 424, 24, 700, '#fca5a5');
-
-      const quipText = quipFor(state.seed, state.characterId);
-      ctx.font = `600 24px ${UI_FONT}`;
-      const quipLines = wrapText(quipText, 360, str => ctx.measureText(str).width);
-      const quipBoxH = quipLines.length <= 1 ? 64 : 96;
-
-      ctx.beginPath();
-      const qx = 72;
-      const qy = 450;
-      const qw = 396;
-      const qh = quipBoxH;
-      const qr = 18;
-      ctx.moveTo(qx + qr, qy);
-      ctx.lineTo(qx + qw - qr, qy);
-      ctx.arcTo(qx + qw, qy, qx + qw, qy + qr, qr);
-      ctx.lineTo(qx + qw, qy + qh - qr);
-      ctx.arcTo(qx + qw, qy + qh, qx + qw - qr, qy + qh, qr);
-      ctx.lineTo(qx + qr, qy + qh);
-      ctx.arcTo(qx, qy + qh, qx, qy + qh - qr, qr);
-      ctx.lineTo(qx, qy + qr);
-      ctx.arcTo(qx, qy, qx + qr, qy, qr);
-      ctx.closePath();
-      ctx.fillStyle = '#1e2a52';
-      ctx.fill();
-
-      ctx.fillStyle = '#e2e8f0';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      if (quipLines.length === 1) {
-        ctx.fillText(quipLines[0], 270, qy + qh / 2);
-      } else {
-        ctx.fillText(quipLines[0], 270, qy + 16 + 16);
-        ctx.fillText(quipLines[1], 270, qy + 16 + 16 + 32);
-      }
-
-      outlinedText(ctx, 'ĐIỂM', 270, 584, 20, 700, '#94a3b8');
-      const scoreStr = formatScore(state.score);
-      const scoreSize = fitFontSize(scoreStr, 380, 72, 44, (t, s) => {
-        ctx.font = `800 ${s}px ${UI_FONT}`;
-        return ctx.measureText(t).width;
-      });
-      outlinedText(ctx, scoreStr, 270, 640, scoreSize, 800, '#ffffff');
-
-      const newlyUnlocked = Array.isArray(justUnlockedGa)
-        ? justUnlockedGa
-        : (justUnlockedGa ? ['GA'] : []);
-      if (newlyUnlocked.length > 0) {
-        const names = newlyUnlocked.map(id => CHARACTERS[id]?.name || id).join(' · ');
-        const unlockStr = `MỞ KHOÁ: ${names}!`;
-        ctx.font = `800 20px ${UI_FONT}`;
-        const ubW = ctx.measureText(unlockStr).width + 48;
-        const ubH = 40;
-        pill(ctx, 270 - ubW / 2, 698 - ubH / 2, ubW, ubH, '#f472b6', '#0b1530', 3);
-        outlinedText(ctx, unlockStr, 270, 698, 20, 800, '#ffffff');
-      } else if (isNewBest) {
-        const newBestStr = 'KỶ LỤC MỚI!';
-        ctx.font = `800 20px ${UI_FONT}`;
-        const nbW = ctx.measureText(newBestStr).width + 48;
-        const nbH = 40;
-        pill(ctx, 270 - nbW / 2, 698 - nbH / 2, nbW, nbH, '#fbbf24', '#0b1530', 3);
-        ctx.font = `800 20px ${UI_FONT}`;
-        ctx.fillStyle = '#3b2603';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(newBestStr, 270, 698);
-      } else {
-        const bestStr = `Kỷ lục: ${formatScore(bestScore)}`;
-        ctx.font = `700 22px ${UI_FONT}`;
-        const bW = ctx.measureText(bestStr).width + 56;
-        const bH = 40;
-        pill(ctx, 270 - bW / 2, 698 - bH / 2, bW, bH, 'rgba(11, 21, 48, 0.88)', '#fbbf24', 3);
-        crown(ctx, 270 - bW / 2 + 22, 698, 18, '#fbbf24');
-        outlinedText(ctx, bestStr, 270 + 12, 698, 22, 700, '#fbbf24');
-      }
-
-      const restartEnabled = state.restartLockT <= 0;
-      secondaryButton3d(ctx, CAUGHT.menuBtn.x + CAUGHT.menuBtn.w / 2, CAUGHT.menuBtn.y + CAUGHT.menuBtn.h / 2, CAUGHT.menuBtn.w, CAUGHT.menuBtn.h, 'MENU', 28);
-      button3d(ctx, CAUGHT.restartBtn.x + CAUGHT.restartBtn.w / 2, CAUGHT.restartBtn.y + CAUGHT.restartBtn.h / 2, CAUGHT.restartBtn.w, CAUGHT.restartBtn.h, 'CHẠY LẠI', 32, 1, restartEnabled);
-
-      if (activeLogo && activeLogo.complete && activeLogo.naturalWidth > 0) {
-        const prevAlpha = ctx.globalAlpha;
-        ctx.globalAlpha = 0.85;
-        const logoW = 150;
-        const logoH = logoW * (213 / 845);
-        const logoX = (VIEW_W - logoW) / 2;
-        const logoY = 852;
-        ctx.drawImage(activeLogo, logoX, logoY, logoW, logoH);
-        ctx.globalAlpha = prevAlpha;
-      }
-
-      if (fps !== null && fps !== undefined) {
-        const fpsY = state.characterId === 'GA' ? 170 : 130;
-        outlinedText(ctx, `${fps} FPS`, 20, fpsY, 16, 700, '#22c55e', { align: 'left' });
-      }
-    }
-
-    // Viền đỏ mờ khi vấp chướng ngại
-    if (hitFlashT > 0) {
-      const flashAlpha = 0.25 * (hitFlashT / 0.25);
-      ctx.strokeStyle = `rgba(239, 68, 68, ${flashAlpha.toFixed(2)})`;
-      ctx.lineWidth = 8;
-      ctx.strokeRect(4, 4, VIEW_W - 8, VIEW_H - 8);
-    }
-  }
-
-  return {
-    render,
-    lastAnim,
-    onEvent,
-    setBrandLogo,
-    setCaughtSprites(cs) {
-      caughtSprites = cs;
-    },
-    get drawnBoardsCount() {
-      return drawnBoardsCount;
-    },
-    get isTokenReady() {
-      return isTokenReady();
-    },
-    get hasSkylineSign() {
-      return bg.hasSkylineSign;
-    }
-  };
+/*! © 2026 YABAI · BHP Run · all rights reserved */
+import{
+VIEW_W,
+VIEW_H,
+DRAW_DIST,
+PROP_PX_PER_M,
+ITEM_TYPES,
+UI_FONT,
+HINT_TIME,
+HINT_FADE
+}from'./config.js';
+import{project,laneX,cameraX}from'./track.js';
+import{
+teoAnim,
+policeAnim,
+policeZ,
+policeX,
+spriteScale,
+frameIndex,
+propFrameKey,
+sidePropFrameKey,
+itemBottomY,
+animNameFor
+}from'./anim.js';
+import{createProps}from'./props.js';
+import{createBackground}from'./background.js';
+import{quipFor,wrapText}from'./quips.js';
+import{billboardSlots}from'./brand.js';
+import{
+initBrandArt,
+updateBrandLogo,
+getTokenCanvas,
+getBillboardCanvas,
+isTokenReady,
+isBillboardReady
+}from'./brandart.js';
+import{HUD,CAUGHT,PAUSE,fitFontSize,formatScore,meterColor}from'./hudlayout.js';
+import{
+outlinedText,
+pill,
+button3d,
+secondaryButton3d,
+card,
+ribbon,
+crown,
+arrowIcon,
+lockIcon,
+chickenIcon,
+cherryBoxIcon
+}from'./ui.js';
+import{CHARACTERS,isUnlocked}from'./characters.js';
+const STORY_TEXT_OPTS={strokeW:3,shadowDy:2};
+export function createRenderer(canvas){
+const ctx=canvas.getContext('2d');
+const props=createProps();
+const bg=createBackground();
+let animTime=0;
+const renderList=[];
+const playerRenderItem={kind:'player',x:0,y:0,z:0,sliding:false,airborne:false};
+const policeRenderItem={kind:'police',x:0,y:0,z:0};
+const sidePropsPool=[];
+for(let i=0;i<36;i++){
+sidePropsPool.push({kind:'sideProp',propType:'lamp',x:0,z:0});
+}
+const brandBoardsPool=[
+{kind:'brandBoard',x:0,z:0},
+{kind:'brandBoard',x:0,z:0},
+{kind:'brandBoard',x:0,z:0}
+];
+const billboardSlotsOut=[];
+let drawnBoardsCount=0;
+const lastAnim={
+teo:{name:'run',frame:0},
+police:{name:'run',frame:0}
+};
+let shakeT=0;
+let hitFlashT=0;
+let caughtSprites=null;
+let caughtT=0;
+const floatScoresPool=[];
+for(let i=0;i<12;i++){
+floatScoresPool.push({active:false,text:'',x:0,y:0,t:0,colorPrefix:'rgba(253, 224, 71,'});
+}
+function spawnFloatingScore(text,x,y,isYabai=false){
+let slot=floatScoresPool.find(f=>!f.active);
+if(!slot){
+slot=floatScoresPool.reduce((oldest,item)=>(item.t>oldest.t?item:oldest),floatScoresPool[0]);
+}
+slot.active=true;
+slot.text=text;
+slot.x=x;
+slot.y=y;
+slot.t=0;
+slot.colorPrefix=isYabai?'rgba(251, 191, 36,':'rgba(253, 224, 71,';
+}
+const feathersPool=[];
+for(let i=0;i<6;i++){
+feathersPool.push({active:false,x:0,y:0,vx:0,vy:0,r:3,life:0});
+}
+function spawnFeathers(cx,cy){
+for(let i=0;i<6;i++){
+const f=feathersPool[i];
+const angle=(i*Math.PI)/3+0.2;
+const speed=75+(i%3)*20;
+f.active=true;
+f.x=cx;
+f.y=cy;
+f.vx=Math.cos(angle)*speed;
+f.vy=Math.sin(angle)*speed-25;
+f.r=3+(i%3);
+f.life=0.6;
+}
+}
+const cherriesPool=[];
+for(let i=0;i<10;i++){
+cherriesPool.push({active:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,r:5,life:0});
+}
+function spawnCherries(cx,cy,cz){
+for(let i=0;i<10;i++){
+const c=cherriesPool[i];
+const angle=(i*Math.PI*2)/10+0.3;
+const speed=1.2+(i%3)*0.4;
+c.active=true;
+c.x=cx;
+c.y=cy;
+c.z=cz;
+c.vx=Math.cos(angle)*speed;
+c.vy=2.2+(i%4)*0.4;
+c.vz=-1.8-(i%3)*0.7;
+c.r=4+(i%3);
+c.life=0.7;
+}
+}
+const dropAnim={
+active:false,
+t:0,
+startX:0,
+targetX:0
+};
+const throwAnim={
+active:false,
+t:0,
+startX:0
+};
+let flapTimer=0;
+let flapPhase=0;
+let lastCamX=0;
+let lastPlayerX=0;
+let lastPlayerY=0;
+let lastPlayerCharId='TEO';
+function onEvent(ev){
+if(!ev)return;
+if(ev.type==='hit'){
+shakeT=0.25;
+hitFlashT=0.25;
+}else if(ev.type==='flap'){
+flapTimer=0.6;
+const p=project(lastPlayerX+0.25,lastPlayerY+1.15,0.05,lastCamX);
+spawnFeathers(p.sx,p.sy);
+spawnFloatingScore('GÀ VỖ CÁNH!',p.sx,p.sy-30,false);
+}else if(ev.type==='throw'){
+throwAnim.active=true;
+throwAnim.t=0;
+throwAnim.startX=lastPlayerX;
+spawnCherries(lastPlayerX,1.0,0);
+const p=project(lastPlayerX,1.2,0,lastCamX);
+spawnFloatingScore('NÉM HỘP CHERRY! +1 MẠNG',p.sx,p.sy-40,false);
+}else if(ev.type==='drop'){
+dropAnim.active=true;
+dropAnim.t=0;
+dropAnim.startX=lastPlayerX;
+dropAnim.targetX=lastPlayerX<=0?-4.5:4.5;
+const p=project(lastPlayerX,1.0,0,lastCamX);
+const dropLabel=lastPlayerCharId==='NO'?'THẢ HỘP CHERRY!':'THẢ GÀ!';
+spawnFloatingScore(dropLabel,p.sx,p.sy-30,false);
+}else if(ev.type==='pickup'){
+const lane=ev.lane!==undefined?ev.lane:1;
+const p=project(laneX(lane),0.5,0,lastCamX);
+if(ev.item==='YABAI'){
+spawnFloatingScore('+100 YABAI!',p.sx,p.sy,true);
+}else{
+const pts=ITEM_TYPES[ev.item]?ITEM_TYPES[ev.item].points:10;
+spawnFloatingScore(`+${pts}`,p.sx,p.sy,false);
+}
+}
+}
+let defaultBrandLogo=null;
+function setBrandLogo(img){
+defaultBrandLogo=img;
+updateBrandLogo(img);
+bg.setBrandLogo(img);
+}
+function render(
+state,
+bestScore=0,
+sprites=null,
+fps=null,
+loading=false,
+dt=1/60,
+brandLogo=null,
+isNewBest=false,
+justUnlockedGa=false,
+unlockAll=false,
+flashCharSelectT=0,
+caughtSpritesParam=null,
+paused=false
+){
+if(caughtSpritesParam){
+caughtSprites=caughtSpritesParam;
+}
+const camX=cameraX(state.player.x);
+lastCamX=camX;
+lastPlayerX=state.player.x;
+lastPlayerY=state.player.y;
+lastPlayerCharId=state.characterId;
+const delta=typeof dt==='number'&&dt>0?dt:1/60;
+animTime+=delta;
+const activeLogo=brandLogo||defaultBrandLogo;
+ctx.imageSmoothingEnabled=true;
+ctx.imageSmoothingQuality='high';
+if(state.phase==='ready'){
+caughtT=0;
+shakeT=0;
+hitFlashT=0;
+flapTimer=0;
+dropAnim.active=false;
+throwAnim.active=false;
+for(let i=0;i<floatScoresPool.length;i++){
+floatScoresPool[i].active=false;
+}
+for(let i=0;i<feathersPool.length;i++){
+feathersPool[i].active=false;
+}
+for(let i=0;i<cherriesPool.length;i++){
+cherriesPool[i].active=false;
+}
+}else{
+if(shakeT>0)shakeT=Math.max(0,shakeT-delta);
+if(hitFlashT>0)hitFlashT=Math.max(0,hitFlashT-delta);
+if(flapTimer>0){
+flapTimer=Math.max(0,flapTimer-delta);
+flapPhase+=30*delta;
+}else{
+flapPhase+=6*delta;
+}
+if(dropAnim.active){
+dropAnim.t+=delta;
+if(dropAnim.t>=0.8){
+dropAnim.active=false;
+}
+}
+if(throwAnim.active){
+throwAnim.t+=delta;
+if(throwAnim.t>=0.7){
+throwAnim.active=false;
+}
+}
+for(let i=0;i<feathersPool.length;i++){
+const f=feathersPool[i];
+if(f.active){
+f.x+=f.vx*delta;
+f.y+=f.vy*delta;
+f.life-=delta;
+if(f.life<=0){
+f.active=false;
+}
+}
+}
+for(let i=0;i<cherriesPool.length;i++){
+const c=cherriesPool[i];
+if(c.active){
+c.x+=c.vx*delta;
+c.y+=c.vy*delta-4.9*delta*delta;
+c.z+=c.vz*delta;
+c.life-=delta;
+if(c.life<=0){
+c.active=false;
+}
+}
+}
+for(let i=0;i<floatScoresPool.length;i++){
+const f=floatScoresPool[i];
+if(f.active){
+f.t+=delta;
+if(f.t>=0.6){
+f.active=false;
+}
+}
+}
+}
+const prefersReducedMotion=
+typeof window!=='undefined'&&
+window.matchMedia&&
+window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reducedMotion=Boolean(prefersReducedMotion);
+const isShaking=shakeT>0&&!prefersReducedMotion;
+if(isShaking){
+const amp=6*(shakeT/0.25);
+const shakeX=(Math.random()*2-1)*amp;
+const shakeY=(Math.random()*2-1)*amp;
+ctx.save();
+ctx.translate(shakeX,shakeY);
+}
+bg.renderSkyAndBackground(ctx,state);
+renderList.length=0;
+let sidePropIdx=0;
+const sidePhase=state.distance%8;
+for(let k=0;k<=15;k++){
+const z=k*8-sidePhase;
+if(z>-2&&z<DRAW_DIST){
+const propType=(k%2===0)?'lamp':'lanterns';
+const pLeft=sidePropsPool[sidePropIdx++];
+pLeft.propType=propType;
+pLeft.x=-4.65;
+pLeft.z=z;
+renderList.push(pLeft);
+const pRight=sidePropsPool[sidePropIdx++];
+pRight.propType=propType;
+pRight.x=4.65;
+pRight.z=z;
+renderList.push(pRight);
+}
+}
+drawnBoardsCount=0;
+const bCanvas=getBillboardCanvas();
+if(bCanvas){
+billboardSlots(state.distance,billboardSlotsOut);
+for(let i=0;i<billboardSlotsOut.length&&i<brandBoardsPool.length;i++){
+const slot=billboardSlotsOut[i];
+const bb=brandBoardsPool[i];
+bb.x=slot.x;
+bb.z=slot.z;
+renderList.push(bb);
+drawnBoardsCount++;
+}
+}
+for(let i=0;i<state.objects.length;i++){
+const obj=state.objects[i];
+if(obj.z>-2&&obj.z<DRAW_DIST){
+if(obj.kind==='item'&&obj.taken)continue;
+renderList.push(obj);
+}
+}
+playerRenderItem.x=state.player.x;
+playerRenderItem.y=state.player.y;
+playerRenderItem.z=0;
+playerRenderItem.sliding=state.player.sliding;
+playerRenderItem.airborne=state.player.airborne;
+renderList.push(playerRenderItem);
+policeRenderItem.x=policeX(state.player);
+policeRenderItem.y=0;
+policeRenderItem.z=policeZ(state.meter);
+renderList.push(policeRenderItem);
+renderList.sort((a,b)=>b.z-a.z);
+const hasPropSprites=Boolean(sprites&&sprites.props&&sprites.props.data);
+function drawPropSprite(key,x,y,z){
+if(!hasPropSprites)return;
+const f=sprites.props.data.frames[key];
+if(!f)return;
+const p=project(x,y,z,camX);
+const k=p.scale/(sprites.props.data.pxPerMeter||128);
+ctx.drawImage(
+sprites.props.img,
+f.x,f.y,f.w,f.h,
+p.sx-f.anchor[0]*k,
+p.sy-f.anchor[1]*k,
+f.w*k,
+f.h*k
+);
+}
+for(let i=0;i<renderList.length;i++){
+const item=renderList[i];
+if(item.kind==='brandBoard'){
+const bCanvas=getBillboardCanvas();
+if(bCanvas){
+const p=project(item.x,0,item.z,camX);
+const k=p.scale/PROP_PX_PER_M;
+const w=bCanvas.width*k;
+const h=bCanvas.height*k;
+ctx.drawImage(bCanvas,p.sx-w/2,p.sy-h,w,h);
+}
+}else if(item.kind==='sideProp'){
+if(hasPropSprites){
+const sideSign=item.x<0?-1:1;
+const key=sidePropFrameKey(item.propType,sideSign);
+drawPropSprite(key,item.x,0,item.z);
+}else{
+const p=project(item.x,0,item.z,camX);
+const k=p.scale/PROP_PX_PER_M;
+const c=item.propType==='lamp'?props.lamp:props.lanterns;
+const w=c.w*k;
+const h=c.h*k;
+ctx.drawImage(c.canvas,p.sx-w/2,p.sy-h,w,h);
+}
+}else if(item.kind==='obstacle'){
+const ox=laneX(item.lane);
+const oz=item.z;
+const p=project(ox,0,oz,camX);
+if(hasPropSprites){
+const key=propFrameKey(item);
+const wMeters=(sprites.props.data.sizesMeters&&sprites.props.data.sizesMeters[key])
+?sprites.props.data.sizesMeters[key][0]
+:2.0;
+ctx.fillStyle='rgba(0, 0, 0, 0.3)';
+ctx.beginPath();
+ctx.ellipse(p.sx,p.sy,0.55*wMeters*p.scale,0.18*p.scale,0,0,Math.PI*2);
+ctx.fill();
+drawPropSprite(key,ox,0,oz);
+}else{
+const k=p.scale/PROP_PX_PER_M;
+if(item.type==='GATE'){
+const c=props.gate;
+const w=c.w*k;
+const h=c.h*k;
+ctx.drawImage(c.canvas,p.sx-w/2,p.sy-h,w,h);
+}else if(item.type==='BARRIER'){
+const c=props.barrier;
+const w=c.w*k;
+const h=c.h*k;
+const left=p.sx-w/2;
+const top=p.sy-h;
+ctx.drawImage(c.canvas,left,top,w,h);
+if(Math.floor(state.time*3)%2===0){
+const lx=left+48*k;
+const ly=top+10*k;
+const r=Math.max(2,6*k);
+ctx.fillStyle='#f97316';
+ctx.beginPath();
+ctx.arc(lx,ly,r,0,Math.PI*2);
+ctx.fill();
+ctx.fillStyle='rgba(249, 115, 22, 0.4)';
+ctx.beginPath();
+ctx.arc(lx,ly,r*2,0,Math.PI*2);
+ctx.fill();
+}
+}else if(item.type==='VENDING'){
+const c=props.vendings[item.lane]||props.vendings[0];
+const w=c.w*k;
+const h=c.h*k;
+ctx.drawImage(c.canvas,p.sx-w/2,p.sy-h,w,h);
+}
+}
+}else if(item.kind==='item'){
+const ix=laneX(item.lane);
+const iz=item.z;
+const pGnd=project(ix,0,iz,camX);
+ctx.fillStyle='rgba(0, 0, 0, 0.25)';
+ctx.beginPath();
+ctx.ellipse(pGnd.sx,pGnd.sy,0.25*pGnd.scale,0.08*pGnd.scale,0,0,Math.PI*2);
+ctx.fill();
+if(item.item==='YABAI'){
+const tCanvas=getTokenCanvas();
+const iy=itemBottomY(state.time,iz);
+const p=project(ix,iy,iz,camX);
+const rScreen=0.3*p.scale;
+const cx=p.sx;
+const cy=p.sy-rScreen;
+ctx.fillStyle='rgba(251, 191, 36, 0.25)';
+ctx.beginPath();
+ctx.arc(cx,cy,1.35*rScreen,0,Math.PI*2);
+ctx.fill();
+const spin=Math.max(0.2,Math.abs(Math.cos(state.time*3+iz)));
+const w=2*rScreen*spin;
+const h=2*rScreen;
+ctx.drawImage(tCanvas,cx-w/2,cy-h/2,w,h);
+}else if(hasPropSprites){
+const key=propFrameKey(item);
+const iy=itemBottomY(state.time,iz);
+drawPropSprite(key,ix,iy,iz);
+}else{
+const iy=0.5+0.08*Math.sin(state.time*4+iz);
+const p=project(ix,iy,iz,camX);
+const k=p.scale/PROP_PX_PER_M;
+let c=props.onigiri;
+if(item.item==='TICKET')c=props.ticket;
+else if(item.item==='SUIKA')c=props.suika;
+else if(item.item==='SALARY')c=props.salary;
+const w=c.w*k;
+const h=c.h*k;
+ctx.drawImage(c.canvas,p.sx-w/2,p.sy-h/2,w,h);
+}
+}else if(item.kind==='player'){
+const pGnd=project(item.x,0,0,camX);
+const alpha=0.35*(1-Math.min(item.y/1.2,0.6));
+ctx.fillStyle=`rgba(0, 0, 0, ${alpha})`;
+ctx.beginPath();
+ctx.ellipse(pGnd.sx,pGnd.sy,0.45*pGnd.scale,0.16*pGnd.scale,0,0,Math.PI*2);
+ctx.fill();
+let restoreAlpha=false;
+if(state.invulnT>0){
+const blink=Math.floor(state.invulnT/0.1)%2===0;
+ctx.save();
+ctx.globalAlpha=blink?0.5:1.0;
+restoreAlpha=true;
+}
+const isGa=state.characterId==='GA';
+const isNo=state.characterId==='NO';
+const chickenHeld=Boolean(state.chicken&&state.chicken.held);
+const cherryHeld=Boolean(state.cherry&&state.cherry.held);
+if(isGa&&sprites&&sprites.gathief&&sprites.gathief.data&&sprites.gathief.data.animations){
+const baseAnim=teoAnim(state);
+const animName=animNameFor(baseAnim.name,chickenHeld);
+const aData=sprites.gathief.data.animations[animName]||sprites.gathief.data.animations[baseAnim.name];
+const fIdx=frameIndex(aData.frames.length,baseAnim.u,baseAnim.loop);
+const fKey=aData.frames[fIdx];
+const f=sprites.gathief.data.frames[fKey];
+const p=project(item.x,item.y,0,camX);
+const k=spriteScale(p.scale);
+const[ax,ay]=sprites.gathief.data.anchor;
+ctx.drawImage(sprites.gathief.img,f.x,f.y,f.w,f.h,p.sx-ax*k,p.sy-ay*k,f.w*k,f.h*k);
+lastAnim.teo.name=animName;
+lastAnim.teo.frame=fIdx;
+}else if(isNo&&sprites&&sprites.no&&sprites.no.data&&sprites.no.data.animations){
+const baseAnim=teoAnim(state);
+const animName=animNameFor(baseAnim.name,cherryHeld);
+const aData=sprites.no.data.animations[animName]||sprites.no.data.animations[baseAnim.name];
+const fIdx=frameIndex(aData.frames.length,baseAnim.u,baseAnim.loop);
+const fKey=aData.frames[fIdx];
+const f=sprites.no.data.frames[fKey];
+const p=project(item.x,item.y,0,camX);
+const k=spriteScale(p.scale);
+const[ax,ay]=sprites.no.data.anchor;
+ctx.drawImage(sprites.no.img,f.x,f.y,f.w,f.h,p.sx-ax*k,p.sy-ay*k,f.w*k,f.h*k);
+lastAnim.teo.name=animName;
+lastAnim.teo.frame=fIdx;
+}else if(sprites&&sprites.teo){
+const anim=teoAnim(state);
+const aData=sprites.teo.data.animations[anim.name];
+const fIdx=frameIndex(aData.frames.length,anim.u,anim.loop);
+const fKey=aData.frames[fIdx];
+const f=sprites.teo.data.frames[fKey];
+const p=project(item.x,item.y,0,camX);
+const k=spriteScale(p.scale);
+const[ax,ay]=sprites.teo.data.anchor;
+ctx.drawImage(sprites.teo.img,f.x,f.y,f.w,f.h,p.sx-ax*k,p.sy-ay*k,f.w*k,f.h*k);
+if(isGa&&chickenHeld){
+const pChicken=project(item.x+0.25,item.y+1.15,0.05,camX);
+const sChicken=0.45*pChicken.scale;
+chickenIcon(ctx,pChicken.sx,pChicken.sy,sChicken,flapPhase);
+}
+if(isNo&&cherryHeld){
+const pCherry=project(item.x+0.22,item.y+0.85,0.05,camX);
+const sCherry=0.38*pCherry.scale;
+cherryBoxIcon(ctx,pCherry.sx,pCherry.sy,sCherry);
+}
+lastAnim.teo.name=anim.name;
+lastAnim.teo.frame=fIdx;
+}else{
+const py=item.y;
+const pHeight=item.sliding?0.9:1.8;
+const pBot=project(item.x,py,0,camX);
+const pTop=project(item.x,py+pHeight,0,camX);
+const scale=pBot.scale;
+const w=1.2*scale;
+const h=pBot.sy-pTop.sy;
+const left=pBot.sx-w/2;
+const top=pTop.sy;
+ctx.fillStyle=state.stumbleT>0?'#fb923c':'#ea580c';
+ctx.fillRect(left,top,w,h);
+ctx.strokeStyle='#c2410c';
+ctx.lineWidth=Math.max(2,scale*0.05);
+ctx.strokeRect(left,top,w,h);
+ctx.fillStyle='#ffffff';
+ctx.font=`700 ${Math.max(16, Math.round(scale * 0.35))}px ${UI_FONT}`;
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+let displayName='TÈO';
+if(isGa)displayName=CHARACTERS.GA.name;
+else if(isNo)displayName=CHARACTERS.NO.name;
+ctx.fillText(displayName,pBot.sx,top+h/2);
+if(isGa&&chickenHeld){
+const pChicken=project(item.x+0.25,item.y+1.15,0.05,camX);
+const sChicken=0.45*pChicken.scale;
+chickenIcon(ctx,pChicken.sx,pChicken.sy,sChicken,flapPhase);
+}
+if(isNo&&cherryHeld){
+const pCherry=project(item.x+0.22,item.y+0.85,0.05,camX);
+const sCherry=0.38*pCherry.scale;
+cherryBoxIcon(ctx,pCherry.sx,pCherry.sy,sCherry);
+}
+lastAnim.teo.name='fallback';
+lastAnim.teo.frame=0;
+}
+if(restoreAlpha){
+ctx.restore();
+}
+}else if(item.kind==='police'){
+const pGnd=project(item.x,0,item.z,camX);
+ctx.fillStyle='rgba(0, 0, 0, 0.35)';
+ctx.beginPath();
+ctx.ellipse(pGnd.sx,pGnd.sy,0.45*pGnd.scale,0.16*pGnd.scale,0,0,Math.PI*2);
+ctx.fill();
+if(sprites&&sprites.police){
+const anim=policeAnim(state);
+const aData=sprites.police.data.animations[anim.name];
+const fIdx=frameIndex(aData.frames.length,anim.u,anim.loop);
+const fKey=aData.frames[fIdx];
+const f=sprites.police.data.frames[fKey];
+const p=project(item.x,item.y,item.z,camX);
+const k=spriteScale(p.scale);
+const[ax,ay]=sprites.police.data.anchor;
+ctx.drawImage(sprites.police.img,f.x,f.y,f.w,f.h,p.sx-ax*k,p.sy-ay*k,f.w*k,f.h*k);
+lastAnim.police.name=anim.name;
+lastAnim.police.frame=fIdx;
+}else{
+const pBot=project(item.x,item.y,item.z,camX);
+const pTop=project(item.x,item.y+1.8,item.z,camX);
+const scale=pBot.scale;
+const w=1.5*scale;
+const h=pBot.sy-pTop.sy;
+const left=pBot.sx-w/2;
+const top=pTop.sy;
+ctx.fillStyle='#1d4ed8';
+ctx.fillRect(left,top,w,h);
+ctx.strokeStyle='#1e40af';
+ctx.lineWidth=Math.max(2,scale*0.05);
+ctx.strokeRect(left,top,w,h);
+ctx.fillStyle='#ffffff';
+ctx.font=`700 ${Math.max(16, Math.round(scale * 0.3))}px ${UI_FONT}`;
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+ctx.fillText('CẢNH SÁT',pBot.sx,top+h/2);
+lastAnim.police.name='fallback';
+lastAnim.police.frame=0;
+}
+}
+}
+if(dropAnim.active){
+const dropProgress=Math.min(1,dropAnim.t/0.8);
+const curX=dropAnim.startX+(dropAnim.targetX-dropAnim.startX)*dropProgress;
+const pDrop=project(curX,0,0,camX);
+const sDrop=0.45*pDrop.scale;
+chickenIcon(ctx,pDrop.sx,pDrop.sy-sDrop*0.4,sDrop,animTime*30);
+}
+if(throwAnim.active){
+const u=Math.min(1,throwAnim.t/0.7);
+const curZ=0-u*4.5;
+const curY=1.0+2.0*Math.sin(u*Math.PI);
+const pBox=project(throwAnim.startX,curY,curZ,camX);
+const sBox=0.45*pBox.scale;
+ctx.save();
+ctx.translate(pBox.sx,pBox.sy);
+ctx.rotate(u*Math.PI*4);
+cherryBoxIcon(ctx,0,0,sBox);
+ctx.restore();
+}
+bg.renderFarFog(ctx);
+for(let i=0;i<feathersPool.length;i++){
+const f=feathersPool[i];
+if(f.active){
+const alpha=Math.max(0,f.life/0.6);
+ctx.fillStyle=`rgba(255, 255, 255, ${alpha.toFixed(2)})`;
+ctx.beginPath();
+ctx.arc(f.x,f.y,f.r,0,Math.PI*2);
+ctx.fill();
+}
+}
+for(let i=0;i<cherriesPool.length;i++){
+const c=cherriesPool[i];
+if(c.active){
+const pCherry=project(c.x,c.y,c.z,camX);
+const alpha=Math.max(0,c.life/0.7);
+ctx.save();
+ctx.globalAlpha=alpha;
+ctx.beginPath();
+ctx.arc(pCherry.sx,pCherry.sy,c.r,0,Math.PI*2);
+ctx.fillStyle='#ef4444';
+ctx.fill();
+ctx.strokeStyle='#991b1b';
+ctx.lineWidth=1;
+ctx.stroke();
+ctx.beginPath();
+ctx.arc(pCherry.sx-c.r*0.35,pCherry.sy-c.r*0.35,c.r*0.3,0,Math.PI*2);
+ctx.fillStyle='#ffffff';
+ctx.fill();
+ctx.restore();
+}
+}
+for(let i=0;i<floatScoresPool.length;i++){
+const f=floatScoresPool[i];
+if(f.active){
+const progress=f.t/0.6;
+const curY=f.y-progress*60;
+const isYabai=f.text.includes('YABAI');
+const isSpecial=f.text==='GÀ VỖ CÁNH!'||f.text==='THẢ GÀ!'||f.text==='THẢ HỘP CHERRY!';
+const isCherryThrow=f.text.includes('CHERRY');
+let color=isYabai?'#fbbf24':'#fde047';
+let size=isSpecial?28:(isYabai?32:30);
+if(isCherryThrow){
+color='#f472b6';
+size=26;
+}
+outlinedText(ctx,f.text,f.x,curY,size,800,color);
+}
+}
+if(isShaking){
+ctx.restore();
+}
+if(state.phase==='running'){
+pill(ctx,HUD.distance.x,HUD.distance.y,HUD.distance.w,HUD.distance.h,'rgba(11, 21, 48, 0.88)','#fbbf24',3);
+const distStr=`${Math.floor(state.distance)} m`;
+const distSize=fitFontSize(distStr,HUD.distance.w-24,28,16,(t,s)=>{
+ctx.font=`800 ${s}px ${UI_FONT}`;
+return ctx.measureText(t).width;
+});
+outlinedText(ctx,distStr,HUD.distance.x+HUD.distance.w/2,HUD.distance.y+HUD.distance.h/2,distSize,800,'#ffffff');
+const scoreStr=formatScore(state.score);
+const scoreSize=fitFontSize(scoreStr,HUD.score.w,48,28,(t,s)=>{
+ctx.font=`800 ${s}px ${UI_FONT}`;
+return ctx.measureText(t).width;
+});
+outlinedText(ctx,scoreStr,HUD.score.x+HUD.score.w/2,HUD.score.y+HUD.score.h/2,scoreSize,800,'#ffffff');
+pill(ctx,HUD.best.x,HUD.best.y,HUD.best.w,HUD.best.h,'rgba(11, 21, 48, 0.88)','#94a3b8',3);
+crown(ctx,HUD.best.x+22,HUD.best.y+HUD.best.h/2,20,'#fbbf24');
+const bestStr=formatScore(bestScore);
+const bestSize=fitFontSize(bestStr,HUD.best.w-42,26,14,(t,s)=>{
+ctx.font=`800 ${s}px ${UI_FONT}`;
+return ctx.measureText(t).width;
+});
+outlinedText(ctx,bestStr,HUD.best.x+30+(HUD.best.w-30)/2,HUD.best.y+HUD.best.h/2,bestSize,800,'#fbbf24');
+const isHighMeter=state.meter>=70;
+const altCycle=Math.floor(animTime/0.25)%2===1;
+const meterBorder=(isHighMeter&&!reducedMotion&&altCycle)?'#3b82f6':(isHighMeter?'#ef4444':'#0b1530');
+pill(ctx,HUD.meter.x,HUD.meter.y,HUD.meter.w,HUD.meter.h,'rgba(11, 21, 48, 0.88)');
+ctx.save();
+const mr=HUD.meter.h/2;
+ctx.beginPath();
+ctx.moveTo(HUD.meter.x+mr,HUD.meter.y);
+ctx.lineTo(HUD.meter.x+HUD.meter.w-mr,HUD.meter.y);
+ctx.arc(HUD.meter.x+HUD.meter.w-mr,HUD.meter.y+mr,mr,-Math.PI/2,Math.PI/2);
+ctx.lineTo(HUD.meter.x+mr,HUD.meter.y+HUD.meter.h);
+ctx.arc(HUD.meter.x+mr,HUD.meter.y+mr,mr,Math.PI/2,-Math.PI/2);
+ctx.closePath();
+ctx.clip();
+const fillRatio=Math.min(1,Math.max(0,state.meter/100));
+ctx.fillStyle=meterColor(state.meter);
+ctx.fillRect(HUD.meter.x,HUD.meter.y,HUD.meter.w*fillRatio,HUD.meter.h);
+ctx.restore();
+pill(ctx,HUD.meter.x,HUD.meter.y,HUD.meter.w,HUD.meter.h,null,meterBorder,3);
+ctx.beginPath();
+ctx.arc(36,HUD.meter.y+HUD.meter.h/2,7,0,Math.PI*2);
+ctx.fillStyle='#ef4444';
+ctx.fill();
+ctx.strokeStyle='#0b1530';
+ctx.lineWidth=1.5;
+ctx.stroke();
+ctx.beginPath();
+ctx.arc(54,HUD.meter.y+HUD.meter.h/2,7,0,Math.PI*2);
+ctx.fillStyle='#3b82f6';
+ctx.fill();
+ctx.strokeStyle='#0b1530';
+ctx.lineWidth=1.5;
+ctx.stroke();
+outlinedText(ctx,`CẢNH SÁT ${Math.round(state.meter)}%`,HUD.meter.x+HUD.meter.w/2,HUD.meter.y+HUD.meter.h/2,20,800,'#ffffff');
+if(state.characterId==='GA'&&state.chicken&&state.chicken.held){
+ctx.save();
+if(!state.chicken.flapReady){
+ctx.globalAlpha=0.4;
+}
+chickenIcon(ctx,40,136,28,flapPhase);
+outlinedText(ctx,state.chicken.flapReady?'×1':'×0',66,136,22,800,'#ffffff',{align:'left'});
+ctx.restore();
+}
+if(state.characterId==='NO'&&state.cherry&&state.cherry.held){
+ctx.save();
+if(!state.cherry.lifeReady){
+ctx.globalAlpha=0.4;
+}
+cherryBoxIcon(ctx,40,136,26);
+outlinedText(ctx,state.cherry.lifeReady?'+1':'+0',66,136,22,800,'#ffffff',{align:'left'});
+ctx.restore();
+}
+if(state.time<HINT_TIME){
+const hintA=state.time<HINT_TIME-HINT_FADE?1:Math.max(0,(HINT_TIME-state.time)/HINT_FADE);
+const dropText=state.characterId==='GA'?'Chạm 2 lần: thả gà':(state.characterId==='NO'?'Chạm 2 lần: thả hộp':null);
+const hintH=dropText?176:146;
+ctx.save();
+ctx.globalAlpha=0.92*hintA;
+card(ctx,80,440,380,hintH,'#22d3ee');
+outlinedText(ctx,'VUỐT ĐỂ ĐIỀU KHIỂN',270,468,18,800,'#fde047');
+const hintChips=[
+{x:170,kind:'lr',label:'Đổi làn'},
+{x:270,kind:'up',label:'Nhảy'},
+{x:370,kind:'down',label:'Trượt'}
+];
+for(const chip of hintChips){
+pill(ctx,chip.x-24,512-24,48,48,'rgba(11, 21, 48, 0.88)','#22d3ee',3);
+arrowIcon(ctx,chip.x,512,14,chip.kind);
+outlinedText(ctx,chip.label,chip.x,558,17,700,'#e2e8f0');
+}
+if(dropText){
+outlinedText(ctx,dropText,270,592,17,700,'#fbbf24');
+}
+ctx.restore();
+}
+if(fps!==null&&fps!==undefined){
+const fpsY=(state.characterId==='GA'||state.characterId==='NO')?170:130;
+outlinedText(ctx,`${fps} FPS`,20,fpsY,16,700,'#22c55e',{align:'left'});
+}
+const pb=PAUSE.btn;
+pill(ctx,pb.x,pb.y,pb.w,pb.h,'rgba(11, 21, 48, 0.88)','#fbbf24',3);
+ctx.fillStyle='#ffffff';
+ctx.fillRect(pb.x+pb.w/2-9,pb.y+15,6,pb.h-30);
+ctx.fillRect(pb.x+pb.w/2+3,pb.y+15,6,pb.h-30);
+if(paused){
+ctx.fillStyle='rgba(8, 12, 34, 0.7)';
+ctx.fillRect(0,0,VIEW_W,VIEW_H);
+const pc=PAUSE.card;
+card(ctx,pc.x,pc.y,pc.w,pc.h,'#22d3ee');
+ribbon(ctx,270,pc.y,'TẠM DỪNG',34,'#22d3ee','#063040');
+const r=PAUSE.resume;
+button3d(ctx,r.x+r.w/2,r.y+r.h/2,r.w,r.h,'TIẾP TỤC',32,1,true);
+const rs=PAUSE.restart;
+secondaryButton3d(ctx,rs.x+rs.w/2,rs.y+rs.h/2,rs.w,rs.h,'CHƠI LẠI',26);
+const m=PAUSE.menu;
+secondaryButton3d(ctx,m.x+m.w/2,m.y+m.h/2,m.w,m.h,'MENU',26);
+}
+}
+if(state.phase==='ready'){
+}else if(state.phase==='caught'){
+caughtT+=delta;
+ctx.fillStyle='rgba(8, 12, 34, 0.62)';
+ctx.fillRect(0,0,VIEW_W,VIEW_H);
+const charKey=state.characterId==='GA'?'ga':(state.characterId==='NO'?'no':'teo');
+const caughtAtlas=caughtSprites?caughtSprites[charKey]:null;
+if(caughtAtlas&&caughtAtlas.img&&caughtAtlas.data){
+const anim=caughtAtlas.data.animations?.cry;
+const frames=anim?.frames||Object.keys(caughtAtlas.data.frames||{});
+if(frames.length>0){
+const duration=anim?.duration||1.0;
+const u=(caughtT%duration)/duration;
+const fIdx=Math.min(frames.length-1,Math.floor(u*frames.length));
+const frameKey=frames[fIdx];
+const frame=caughtAtlas.data.frames[frameKey];
+if(frame){
+ctx.save();
+ctx.globalAlpha=Math.min(1,caughtT/0.3);
+ctx.drawImage(
+caughtAtlas.img,
+frame.x,frame.y,frame.w,frame.h,
+CAUGHT.art.x,CAUGHT.art.y,CAUGHT.art.w,CAUGHT.art.h
+);
+ctx.restore();
+}
+}
+}
+card(ctx,CAUGHT.card.x,CAUGHT.card.y,CAUGHT.card.w,CAUGHT.card.h,'#ef4444');
+ribbon(ctx,270,362,'BỊ TÓM!',44,'#ef4444','#ffffff');
+const reasonText=state.caughtReason==='meter'?'Cảnh sát bắt kịp rồi.':'Vấp hai lần liên tiếp.';
+outlinedText(ctx,reasonText,270,424,24,700,'#fca5a5');
+const quipText=quipFor(state.seed,state.characterId);
+ctx.font=`600 24px ${UI_FONT}`;
+const quipLines=wrapText(quipText,360,str=>ctx.measureText(str).width);
+const quipBoxH=quipLines.length<=1?64:96;
+ctx.beginPath();
+const qx=72;
+const qy=450;
+const qw=396;
+const qh=quipBoxH;
+const qr=18;
+ctx.moveTo(qx+qr,qy);
+ctx.lineTo(qx+qw-qr,qy);
+ctx.arcTo(qx+qw,qy,qx+qw,qy+qr,qr);
+ctx.lineTo(qx+qw,qy+qh-qr);
+ctx.arcTo(qx+qw,qy+qh,qx+qw-qr,qy+qh,qr);
+ctx.lineTo(qx+qr,qy+qh);
+ctx.arcTo(qx,qy+qh,qx,qy+qh-qr,qr);
+ctx.lineTo(qx,qy+qr);
+ctx.arcTo(qx,qy,qx+qr,qy,qr);
+ctx.closePath();
+ctx.fillStyle='#1e2a52';
+ctx.fill();
+ctx.fillStyle='#e2e8f0';
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+if(quipLines.length===1){
+ctx.fillText(quipLines[0],270,qy+qh/2);
+}else{
+ctx.fillText(quipLines[0],270,qy+16+16);
+ctx.fillText(quipLines[1],270,qy+16+16+32);
+}
+outlinedText(ctx,'ĐIỂM',270,584,20,700,'#94a3b8');
+const scoreStr=formatScore(state.score);
+const scoreSize=fitFontSize(scoreStr,380,72,44,(t,s)=>{
+ctx.font=`800 ${s}px ${UI_FONT}`;
+return ctx.measureText(t).width;
+});
+outlinedText(ctx,scoreStr,270,640,scoreSize,800,'#ffffff');
+const newlyUnlocked=Array.isArray(justUnlockedGa)
+?justUnlockedGa
+:(justUnlockedGa?['GA']:[]);
+if(newlyUnlocked.length>0){
+const names=newlyUnlocked.map(id=>CHARACTERS[id]?.name||id).join(' · ');
+const unlockStr=`MỞ KHOÁ: ${names}!`;
+ctx.font=`800 20px ${UI_FONT}`;
+const ubW=ctx.measureText(unlockStr).width+48;
+const ubH=40;
+pill(ctx,270-ubW/2,698-ubH/2,ubW,ubH,'#f472b6','#0b1530',3);
+outlinedText(ctx,unlockStr,270,698,20,800,'#ffffff');
+}else if(isNewBest){
+const newBestStr='KỶ LỤC MỚI!';
+ctx.font=`800 20px ${UI_FONT}`;
+const nbW=ctx.measureText(newBestStr).width+48;
+const nbH=40;
+pill(ctx,270-nbW/2,698-nbH/2,nbW,nbH,'#fbbf24','#0b1530',3);
+ctx.font=`800 20px ${UI_FONT}`;
+ctx.fillStyle='#3b2603';
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+ctx.fillText(newBestStr,270,698);
+}else{
+const bestStr=`Kỷ lục: ${formatScore(bestScore)}`;
+ctx.font=`700 22px ${UI_FONT}`;
+const bW=ctx.measureText(bestStr).width+56;
+const bH=40;
+pill(ctx,270-bW/2,698-bH/2,bW,bH,'rgba(11, 21, 48, 0.88)','#fbbf24',3);
+crown(ctx,270-bW/2+22,698,18,'#fbbf24');
+outlinedText(ctx,bestStr,270+12,698,22,700,'#fbbf24');
+}
+const restartEnabled=state.restartLockT<=0;
+secondaryButton3d(ctx,CAUGHT.menuBtn.x+CAUGHT.menuBtn.w/2,CAUGHT.menuBtn.y+CAUGHT.menuBtn.h/2,CAUGHT.menuBtn.w,CAUGHT.menuBtn.h,'MENU',28);
+button3d(ctx,CAUGHT.restartBtn.x+CAUGHT.restartBtn.w/2,CAUGHT.restartBtn.y+CAUGHT.restartBtn.h/2,CAUGHT.restartBtn.w,CAUGHT.restartBtn.h,'CHẠY LẠI',32,1,restartEnabled);
+if(activeLogo&&activeLogo.complete&&activeLogo.naturalWidth>0){
+const prevAlpha=ctx.globalAlpha;
+ctx.globalAlpha=0.85;
+const logoW=150;
+const logoH=logoW*(213/845);
+const logoX=(VIEW_W-logoW)/2;
+const logoY=852;
+ctx.drawImage(activeLogo,logoX,logoY,logoW,logoH);
+ctx.globalAlpha=prevAlpha;
+}
+if(fps!==null&&fps!==undefined){
+const fpsY=state.characterId==='GA'?170:130;
+outlinedText(ctx,`${fps} FPS`,20,fpsY,16,700,'#22c55e',{align:'left'});
+}
+}
+if(hitFlashT>0){
+const flashAlpha=0.25*(hitFlashT/0.25);
+ctx.strokeStyle=`rgba(239, 68, 68, ${flashAlpha.toFixed(2)})`;
+ctx.lineWidth=8;
+ctx.strokeRect(4,4,VIEW_W-8,VIEW_H-8);
+}
+}
+return{
+render,
+lastAnim,
+onEvent,
+setBrandLogo,
+setCaughtSprites(cs){
+caughtSprites=cs;
+},
+get drawnBoardsCount(){
+return drawnBoardsCount;
+},
+get isTokenReady(){
+return isTokenReady();
+},
+get hasSkylineSign(){
+return bg.hasSkylineSign;
+}
+};
 }
